@@ -248,3 +248,90 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
+
+def dataset_entries(destination: Path) -> list[dict]:
+    """Read and strictly validate the two supported Freqtrade spot Feather files."""
+    import pandas as pd
+
+    entries = []
+    for pair in REQUIRED.values():
+        output = destination / _filename(pair)
+        if not output.is_file():
+            raise ImportError(f"missing Feather data for {pair}")
+        frame = pd.read_feather(output)
+        if list(frame.columns) != FREQTRADE_COLUMNS or frame.empty:
+            raise ImportError(f"invalid Freqtrade Feather schema for {pair}")
+        dates = pd.to_datetime(frame["date"], utc=True)
+        if not dates.is_monotonic_increasing or dates.duplicated().any():
+            raise ImportError(f"unsorted or duplicate timestamps in {pair}")
+        candles = list(zip(dates.dt.to_pydatetime(), strict=False))
+        gaps = [
+            f"{left.isoformat()}..{right.isoformat()}"
+            for (left,), (right,) in zip(candles, candles[1:], strict=False)
+            if right - left > INTERVAL
+        ]
+        entries.append(
+            {
+                "pair": pair,
+                "timeframe": "4h",
+                "number_of_candles": len(frame),
+                "first_timestamp": dates.iloc[0].isoformat(),
+                "last_timestamp": dates.iloc[-1].isoformat(),
+                "missing_intervals": gaps,
+                "duplicate_rows_removed": 0,
+                "output_filename": output.name,
+                "output_file_sha256": sha256(output),
+            }
+        )
+    return entries
+
+
+def regenerate_manifest(
+    destination: Path,
+    *,
+    source_metadata: dict,
+    repository_commit: str,
+    freqtrade_version: str,
+    freqtrade_commit: str,
+) -> dict:
+    """Regenerate cache metadata after a merge while preserving its immutable source identity."""
+    manifest = {
+        key: source_metadata[key]
+        for key in ("source_release_tag", "source_asset_name", "source_archive_sha256")
+    }
+    manifest.update(
+        {
+            "repository_commit": repository_commit,
+            "freqtrade_version": freqtrade_version,
+            "freqtrade_commit": freqtrade_commit,
+            "generation_timestamp": datetime.now(UTC).isoformat(),
+            "update_timestamp": datetime.now(UTC).isoformat(),
+            "datasets": dataset_entries(destination),
+        }
+    )
+    (destination / "kraken-ohlcv-manifest.json").write_text(
+        json.dumps(manifest, indent=2, sort_keys=True) + "\n"
+    )
+    return manifest
+
+
+def load_and_verify_manifest(destination: Path) -> dict:
+    manifest_path = destination / "kraken-ohlcv-manifest.json"
+    try:
+        manifest = json.loads(manifest_path.read_text())
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ImportError("missing or invalid dataset manifest") from exc
+    actual = dataset_entries(destination)
+    if manifest.get("datasets") != actual:
+        raise ImportError("dataset manifest is stale or does not match Feather data")
+    return manifest
+
+
+def common_timerange(destination: Path) -> str:
+    entries = load_and_verify_manifest(destination)["datasets"]
+    start = max(datetime.fromisoformat(item["first_timestamp"]) for item in entries)
+    end = min(datetime.fromisoformat(item["last_timestamp"]) for item in entries)
+    if end - start < INTERVAL * 480 + timedelta(days=180):
+        raise ImportError("insufficient common history after 480-candle warm-up")
+    return f"{(end - timedelta(days=180)).strftime('%Y%m%d')}-{end.strftime('%Y%m%d')}"

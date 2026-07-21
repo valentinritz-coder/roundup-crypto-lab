@@ -30,7 +30,7 @@ jobs:
           mkdir -p artifacts/logs tmp-kraken-trades
           freqtrade download-data --config user_data/config.json --datadir tmp-kraken-trades --pairs BTC/EUR ETH/EUR --days 8 --timeframes 4h --dl-trades |& tee artifacts/logs/download.txt
           # Project merge code must preserve seeded history; Freqtrade never writes user_data/data/kraken here.
-          python -m roundup_crypto_lab.merge_kraken_data user_data/data/kraken tmp-kraken-trades |& tee artifacts/logs/merge.txt
+          python -m roundup_crypto_lab.merge_kraken_data user_data/data/kraken tmp-kraken-trades --repository-commit "$GITHUB_SHA" --freqtrade-version "$FREQTRADE_VERSION" --freqtrade-commit "$FREQTRADE_COMMIT" |& tee artifacts/logs/merge.txt
           rm -rf tmp-kraken-trades
       - uses: actions/cache/save@v4
         with: {path: user_data/data/kraken, key: 'kraken-ohlcv-v1-update-${{ github.run_id }}'}

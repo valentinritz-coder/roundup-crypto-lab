@@ -1,8 +1,5 @@
 name: Freqtrade validation
-on:
-  workflow_dispatch:
-  pull_request:
-  push: {branches: [main]}
+on: {workflow_dispatch: {}, pull_request: {}, push: {branches: [main]}}
 permissions: {contents: read}
 concurrency: {group: kraken-ohlcv-pipeline, cancel-in-progress: false}
 env: {FREQTRADE_VERSION: '2026.6', FREQTRADE_COMMIT: b604e2fd70539f7f73d3c62c16ce0b155bbab319}
@@ -12,38 +9,45 @@ jobs:
     defaults: {run: {shell: "bash -eo pipefail {0}"}}
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.12'}
+      - name: Run static checks and importer tests
+        run: |
+          python -m pip install -e '.[dev]'
+          ruff check .
+          pytest
+          python - <<'PY'
+          import yaml
+          from pathlib import Path
+          for path in Path('.github/workflows').glob('*.yml'): yaml.safe_load(path.read_text())
+          PY
       - uses: actions/cache/restore@v4
         id: restore
         with: {path: user_data/data/kraken, key: 'kraken-ohlcv-v1-validation-${{ github.run_id }}', restore-keys: kraken-ohlcv-v1-}
-      - name: Require prepared data cache
+      - name: Defer market validation only for unseeded pull requests
+        if: github.event_name == 'pull_request' && steps.restore.outputs.cache-hit == ''
         run: |
-          test '${{ steps.restore.outputs.cache-hit }}' != '' || { echo 'No prepared cache: run Seed Kraken data first.'; exit 1; }
-      - uses: actions/setup-python@v5
-        with: {python-version: '3.12'}
-      - name: Install tools and pinned Freqtrade
+          echo 'No prepared cache: static/importer checks passed; cache-backed market validation is deferred until Seed Kraken data runs on main.'
+      - name: Require prepared data outside bootstrap pull requests
+        if: github.event_name != 'pull_request' && steps.restore.outputs.cache-hit == ''
+        run: |-
+          echo 'No prepared cache: run Seed Kraken data first.'; exit 1
+      - name: Install pinned Freqtrade
+        if: steps.restore.outputs.cache-hit != ''
         run: |
-          python -m pip install -e '.[dev]'
           git clone --depth 1 --branch "$FREQTRADE_VERSION" https://github.com/freqtrade/freqtrade.git .freqtrade-src
           test "$(git -C .freqtrade-src rev-parse HEAD)" = "$FREQTRADE_COMMIT"
           python -m pip install -r .freqtrade-src/requirements.txt && python -m pip install --no-deps -e .freqtrade-src
-      - name: Verify manifest, common history, and deterministic timerange
+      - name: Verify data and calculate common-overlap timerange
+        if: steps.restore.outputs.cache-hit != ''
         run: |
           mkdir -p artifacts/logs artifacts/results
-          python - <<'PY' | tee artifacts/timerange.txt
-          import hashlib,json
-          from datetime import datetime,timedelta
-          m=json.load(open('user_data/data/kraken/kraken-ohlcv-manifest.json')); d=m['datasets']; assert len(d)==2
-          for x in d:
-            p='user_data/data/kraken/'+x['output_filename']; assert hashlib.sha256(open(p,'rb').read()).hexdigest()==x['output_file_sha256']
-          first={x['first_timestamp'] for x in d}; last={x['last_timestamp'] for x in d}; assert len(first)==len(last)==1
-          start=datetime.fromisoformat(first.pop()); end=datetime.fromisoformat(last.pop()); warmup=timedelta(hours=480*4); effective=timedelta(days=180)
-          assert end-start >= warmup+effective, 'insufficient history after 480-candle warm-up'
-          print((end-effective).strftime('%Y%m%d')+'-'+end.strftime('%Y%m%d'))
-          PY
+          python -c 'from pathlib import Path; from roundup_crypto_lab.kraken_ohlcv import common_timerange; print(common_timerange(Path("user_data/data/kraken")))' | tee artifacts/timerange.txt
           freqtrade list-data --config user_data/config.json --show-timerange |& tee artifacts/logs/list-data.txt
-      - name: Validate and analyze the explicit timerange
+      - name: Validate and analyze explicit timerange
+        if: steps.restore.outputs.cache-hit != ''
         run: |
-          TIMERANGE=$(cat artifacts/timerange.txt | tail -1)
+          TIMERANGE=$(tail -1 artifacts/timerange.txt)
           freqtrade list-strategies --config user_data/config.json |& tee artifacts/logs/list-strategies.txt
           freqtrade show-config --config user_data/config.json |& tee artifacts/logs/show-config.txt
           freqtrade backtesting --config user_data/config.json --strategy RoundupBreakoutStrategy --timeframe 4h --timerange "$TIMERANGE" --export trades --export-directory artifacts/results |& tee artifacts/logs/backtest.txt
@@ -52,8 +56,15 @@ jobs:
           freqtrade lookahead-analysis --config user_data/config.json --strategy RoundupBreakoutStrategy --timeframe 4h --timerange "$TIMERANGE" --minimum-trade-amount 1 --targeted-trade-amount 10 --lookahead-analysis-exportfilename artifacts/results/lookahead.csv |& tee artifacts/logs/lookahead.txt
           freqtrade recursive-analysis --config user_data/config.json --strategy RoundupBreakoutStrategy --timeframe 4h --timerange "$TIMERANGE" --startup-candle 120 240 480 |& tee artifacts/logs/recursive.txt
       - name: Dry-run startup smoke test
-        run: timeout --signal=INT --kill-after=15s 90s freqtrade trade --config user_data/config.json --strategy RoundupBreakoutStrategy --db-url sqlite:///artifacts/results/smoke.sqlite |& tee artifacts/logs/smoke.txt || test ${PIPESTATUS[0]} -eq 124
+        if: steps.restore.outputs.cache-hit != ''
+        run: |
+          set +e
+          timeout --signal=INT --kill-after=15s 90s freqtrade trade --config user_data/config.json --strategy RoundupBreakoutStrategy --db-url sqlite:///artifacts/results/smoke.sqlite > artifacts/logs/smoke.txt 2>&1
+          code=$?
+          set -e
+          if [ "$code" -ne 124 ] && [ "$code" -ne 130 ]; then cat artifacts/logs/smoke.txt; exit "$code"; fi
+          if ! grep -Eq 'Changing state.*RUNNING' artifacts/logs/smoke.txt; then cat artifacts/logs/smoke.txt; echo 'Dry-run smoke test did not reach RUNNING.'; exit 1; fi
       - if: always()
         uses: actions/upload-artifact@v4
-        with: {name: 'freqtrade-validation-${{ github.run_id }}', path: artifacts/, retention-days: 30}
-# The non-fatal CCXT unclosed-connector warning is upstream behavior; artifacts retain it for review.
+        with: {name: 'freqtrade-validation-${{ github.run_id }}', path: artifacts/, if-no-files-found: warn, retention-days: 30}
+# CCXT's non-fatal unclosed-connector warning is retained in logs as upstream behavior.

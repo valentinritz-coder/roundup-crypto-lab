@@ -1,4 +1,4 @@
-"""Merge reconstructed closed Kraken candles without discarding seeded history."""
+"""Safely merge recent reconstructed Kraken candles into a seeded data cache."""
 
 from __future__ import annotations
 
@@ -8,32 +8,69 @@ from pathlib import Path
 
 import pandas as pd
 
-from .kraken_ohlcv import REQUIRED
+from .kraken_ohlcv import (
+    FREQTRADE_COLUMNS,
+    REQUIRED,
+    ImportError,
+    load_and_verify_manifest,
+    regenerate_manifest,
+)
+
+
+def merge(
+    seeded: Path,
+    recent_root: Path,
+    *,
+    now: datetime | None = None,
+    repository_commit: str = "unknown",
+    freqtrade_version: str | None = None,
+    freqtrade_commit: str | None = None,
+) -> dict:
+    source = load_and_verify_manifest(seeded)
+    now = now or datetime.now(UTC)
+    cutoff = now.replace(minute=0, second=0, microsecond=0) - timedelta(hours=now.hour % 4)
+    for pair in REQUIRED.values():
+        filename = f"{pair.replace('/', '_')}-4h.feather"
+        old_path = seeded / filename
+        candidates = list(recent_root.rglob(filename))
+        if len(candidates) != 1:
+            raise ImportError(f"missing or ambiguous recent Feather data for {pair}")
+        old, recent = pd.read_feather(old_path), pd.read_feather(candidates[0])
+        for frame, label in ((old, "seeded"), (recent, "recent")):
+            if list(frame.columns) != FREQTRADE_COLUMNS:
+                raise ImportError(f"invalid {label} Feather schema")
+            frame["date"] = pd.to_datetime(frame["date"], utc=True)
+            if frame.date.duplicated().any():
+                raise ImportError(f"duplicate {label} timestamps")
+        merged = pd.concat([old, recent]).sort_values("date").drop_duplicates("date", keep="last")
+        merged = merged[merged.date < cutoff].reset_index(drop=True)
+        if not set(old.date).issubset(set(merged.date)) or merged.date.iloc[0] != old.date.iloc[0]:
+            raise ImportError("merge would delete historical candles")
+        merged.to_feather(old_path, compression="lz4", compression_level=9)
+    return regenerate_manifest(
+        seeded,
+        source_metadata=source,
+        repository_commit=repository_commit,
+        freqtrade_version=freqtrade_version or source["freqtrade_version"],
+        freqtrade_commit=freqtrade_commit or source["freqtrade_commit"],
+    )
 
 
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("seeded", type=Path)
     parser.add_argument("recent", type=Path)
+    parser.add_argument("--repository-commit", required=True)
+    parser.add_argument("--freqtrade-version", required=True)
+    parser.add_argument("--freqtrade-commit", required=True)
     args = parser.parse_args()
-    cutoff = datetime.now(UTC).replace(minute=0, second=0, microsecond=0) - timedelta(
-        hours=datetime.now(UTC).hour % 4
+    merge(
+        args.seeded,
+        args.recent,
+        repository_commit=args.repository_commit,
+        freqtrade_version=args.freqtrade_version,
+        freqtrade_commit=args.freqtrade_commit,
     )
-    for pair in REQUIRED.values():
-        name = f"{pair.replace('/', '_')}-4h.feather"
-        old = args.seeded / name
-        candidates = list(args.recent.rglob(name))
-        if not old.exists() or len(candidates) != 1:
-            raise SystemExit(f"missing Feather data for {pair}")
-        before = pd.read_feather(old)
-        recent = pd.read_feather(candidates[0])
-        merged = (
-            pd.concat([before, recent]).sort_values("date").drop_duplicates("date", keep="last")
-        )
-        merged = merged[pd.to_datetime(merged.date, utc=True) < cutoff].reset_index(drop=True)
-        if len(merged) < len(before) or merged.date.iloc[0] != before.date.iloc[0]:
-            raise SystemExit("historical candle disappeared")
-        merged.to_feather(old, compression="lz4", compression_level=9)
 
 
 if __name__ == "__main__":

@@ -1,5 +1,7 @@
+import json
 import zipfile
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 from pathlib import Path
 
 import pytest
@@ -67,3 +69,59 @@ def test_conflicting_duplicate_and_bad_alignment_rejected(tmp_path: Path) -> Non
     csv.write_text(row(60))
     with pytest.raises(ImportError, match="aligned"):
         read_kraken_csv(csv, datetime(1970, 1, 2, tzinfo=UTC))
+
+
+def test_manifest_regeneration_and_common_overlap(tmp_path: Path) -> None:
+    from roundup_crypto_lab.kraken_ohlcv import (
+        common_timerange,
+        load_and_verify_manifest,
+        regenerate_manifest,
+        write_feather,
+    )
+    from roundup_crypto_lab.merge_kraken_data import merge
+
+    base = datetime(2025, 1, 1, tzinfo=UTC)
+
+    def candles(start: int, count: int, price: int = 1):
+        return [
+            (
+                base + timedelta(hours=4 * (start + n)),
+                Decimal(price),
+                Decimal(price + 2),
+                Decimal(price),
+                Decimal(price + 1),
+                Decimal(4),
+            )
+            for n in range(count)
+        ]
+
+    write_feather(candles(0, 1600), tmp_path, "BTC/EUR")
+    write_feather(candles(4, 1598), tmp_path, "ETH/EUR")
+    source = {
+        "source_release_tag": "tag",
+        "source_asset_name": "asset",
+        "source_archive_sha256": "abc",
+    }
+    manifest = regenerate_manifest(
+        tmp_path,
+        source_metadata=source,
+        repository_commit="seed",
+        freqtrade_version="2026.6",
+        freqtrade_commit="commit",
+    )
+    assert common_timerange(tmp_path).endswith(
+        (base + timedelta(hours=4 * 1601)).strftime("%Y%m%d")
+    )
+    old_checksum = manifest["datasets"][0]["output_file_sha256"]
+    recent = tmp_path / "recent"
+    recent.mkdir()
+    write_feather(candles(1599, 3, 9), recent, "BTC/EUR")
+    write_feather(candles(1602, 2, 9), recent, "ETH/EUR")
+    merge(tmp_path, recent, now=base + timedelta(hours=4 * 1700))
+    updated = load_and_verify_manifest(tmp_path)
+    assert updated["datasets"][0]["output_file_sha256"] != old_checksum
+    stale = updated.copy()
+    stale["datasets"] = manifest["datasets"]
+    (tmp_path / "kraken-ohlcv-manifest.json").write_text(json.dumps(stale))
+    with pytest.raises(ImportError, match="stale"):
+        load_and_verify_manifest(tmp_path)

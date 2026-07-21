@@ -27,6 +27,7 @@ jobs:
       - name: Download and verify official release asset
         env: {GH_TOKEN: '${{ github.token }}'}
         run: |
+          rm -rf user_data/data/kraken
           mkdir -p artifacts/logs user_data/data/kraken
           gh release download '${{ inputs.release_tag }}' --repo '${{ github.repository }}' --pattern '${{ inputs.asset_name }}' --output seed.zip
           echo '${{ inputs.archive_sha256 }}  seed.zip' | sha256sum --check --strict
@@ -43,12 +44,21 @@ jobs:
           assert len({x['first_timestamp'] for x in data}) == 1
           assert len({x['last_timestamp'] for x in data}) == 1
           PY
-      - id: restore
-        uses: actions/cache/restore@v4
-        with: {path: user_data/data/kraken, key: 'kraken-ohlcv-v1-${{ inputs.seed_version }}-${{ github.run_id }}', restore-keys: kraken-ohlcv-v1-}
+      - name: Verify cache contents
+        run: |
+          test "$(find user_data/data/kraken -maxdepth 1 -type f | wc -l)" -eq 3
+          test -f user_data/data/kraken/BTC_EUR-4h.feather
+          test -f user_data/data/kraken/ETH_EUR-4h.feather
+          test -f user_data/data/kraken/kraken-ohlcv-manifest.json
       - name: Save immutable prepared dataset
         uses: actions/cache/save@v4
         with: {path: user_data/data/kraken, key: 'kraken-ohlcv-v1-${{ inputs.seed_version }}-${{ github.run_id }}'}
       - if: always()
         uses: actions/upload-artifact@v4
-        with: {name: 'kraken-seed-reports-${{ github.run_id }}', path: 'artifacts/\nuser_data/data/kraken/kraken-ohlcv-manifest.json', retention-days: 30}
+        with:
+          name: 'kraken-seed-reports-${{ github.run_id }}'
+          path: |
+            artifacts/
+            user_data/data/kraken/kraken-ohlcv-manifest.json
+          if-no-files-found: error
+          retention-days: 30
