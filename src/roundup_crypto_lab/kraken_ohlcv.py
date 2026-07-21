@@ -323,34 +323,47 @@ def load_and_verify_manifest(destination: Path) -> dict:
     except (OSError, json.JSONDecodeError) as exc:
         raise ImportError("missing or invalid dataset manifest") from exc
     actual = dataset_entries(destination)
+
     # Duplicate-removal provenance exists only at import time; all persistent fields must match.
     def comparable(entries: list[dict]) -> list[dict]:
         return [
             {key: value for key, value in entry.items() if key != "duplicate_rows_removed"}
             for entry in entries
         ]
+
     if comparable(manifest.get("datasets", [])) != comparable(actual):
         raise ImportError("dataset manifest is stale or does not match Feather data")
     return manifest
 
 
-def common_timerange(destination: Path, now: datetime | None = None) -> str:
+def historical_timerange(destination: Path) -> str:
+    """Validate contiguous common history without requiring the archive to be current."""
     entries = load_and_verify_manifest(destination)["datasets"]
     start = max(datetime.fromisoformat(item["first_timestamp"]) for item in entries)
     end = min(datetime.fromisoformat(item["last_timestamp"]) for item in entries)
     required_start = end - INTERVAL * 480 - timedelta(days=180)
     if required_start < start:
         raise ImportError("insufficient common history after 480-candle warm-up")
-    latest_closed = (now or datetime.now(UTC)).replace(minute=0, second=0, microsecond=0)
-    latest_closed -= timedelta(hours=latest_closed.hour % 4)
-    if end < latest_closed - INTERVAL:
-        raise ImportError("common dataset end is not a recent closed 4h candle")
     for entry in entries:
         for gap in entry["missing_intervals"]:
             gap_start, gap_end = (datetime.fromisoformat(value) for value in gap.split(".."))
             if gap_end > required_start and gap_start < end:
                 raise ImportError("missing 4h interval intersects required validation history")
     return f"{(end - timedelta(days=180)).strftime('%Y%m%d')}-{end.strftime('%Y%m%d')}"
+
+
+def common_timerange(destination: Path, now: datetime | None = None) -> str:
+    """Validate historical coverage and require a recent fully closed common candle."""
+    timerange = historical_timerange(destination)
+    end = min(
+        datetime.fromisoformat(item["last_timestamp"])
+        for item in load_and_verify_manifest(destination)["datasets"]
+    )
+    latest_closed = (now or datetime.now(UTC)).replace(minute=0, second=0, microsecond=0)
+    latest_closed -= timedelta(hours=latest_closed.hour % 4)
+    if end < latest_closed - INTERVAL:
+        raise ImportError("common dataset end is not a recent closed 4h candle")
+    return timerange
 
 
 def update_request(destination: Path, now: datetime | None = None) -> str:
@@ -364,4 +377,4 @@ def update_request(destination: Path, now: datetime | None = None) -> str:
     if closed - end <= timedelta(days=8):
         return "--days 8"
     # Freqtrade 2026.6 download-data supports --timerange (mutually exclusive with --days).
-    return f"--timerange {(end - timedelta(days=1)).strftime('%Y%m%d')}-{closed.strftime('%Y%m%d')}"
+    return f"--timerange {int((end - timedelta(days=1)).timestamp())}-"

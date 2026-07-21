@@ -78,7 +78,7 @@ def test_conflicting_duplicate_and_bad_alignment_rejected(tmp_path: Path) -> Non
 
 def test_manifest_regeneration_and_common_overlap(tmp_path: Path) -> None:
     from roundup_crypto_lab.kraken_ohlcv import (
-        common_timerange,
+        historical_timerange,
         load_and_verify_manifest,
         regenerate_manifest,
         write_feather,
@@ -114,7 +114,7 @@ def test_manifest_regeneration_and_common_overlap(tmp_path: Path) -> None:
         freqtrade_version="2026.6",
         freqtrade_commit="commit",
     )
-    assert common_timerange(tmp_path, now=base + timedelta(hours=4 * 1601 - 1)).endswith(
+    assert historical_timerange(tmp_path).endswith(
         (base + timedelta(hours=4 * 1601)).strftime("%Y%m%d")
     )
     old_checksum = manifest["datasets"][0]["output_file_sha256"]
@@ -201,3 +201,38 @@ def test_update_request_uses_weekly_or_deterministic_catchup(tmp_path: Path) -> 
         freqtrade_commit="c",
     )
     assert update_request(tmp_path, now=now).startswith("--timerange ")
+
+
+def test_stale_seed_is_historically_valid_but_not_current(tmp_path: Path) -> None:
+    from roundup_crypto_lab.kraken_ohlcv import (
+        common_timerange,
+        historical_timerange,
+        regenerate_manifest,
+        write_feather,
+    )
+
+    now = datetime(2026, 7, 21, 15, tzinfo=UTC)
+    start = now - timedelta(days=500)
+    candles = [
+        (start + timedelta(hours=4 * n), Decimal(1), Decimal(3), Decimal(1), Decimal(2), Decimal(4))
+        for n in range(1600)
+    ]
+    for pair in ("BTC/EUR", "ETH/EUR"):
+        write_feather(candles, tmp_path, pair)
+    regenerate_manifest(
+        tmp_path,
+        source_metadata={
+            "source_release_tag": "t",
+            "source_asset_name": "a",
+            "source_archive_sha256": "s",
+        },
+        repository_commit="r",
+        freqtrade_version="2026.6",
+        freqtrade_commit="c",
+    )
+    assert historical_timerange(tmp_path)
+    with pytest.raises(ImportError, match="recent"):
+        common_timerange(tmp_path, now=now)
+    request = update_request(tmp_path, now=now)
+    assert request.startswith("--timerange ") and request.endswith("-")
+    assert len(request.split()[1].split("-")[0]) == 10

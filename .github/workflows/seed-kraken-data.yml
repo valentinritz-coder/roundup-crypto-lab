@@ -36,7 +36,7 @@ jobs:
       - name: Verify history and Freqtrade data
         run: |
           freqtrade list-data --config user_data/config.json --show-timerange |& tee artifacts/logs/list-data.txt
-          python -c 'from pathlib import Path; from roundup_crypto_lab.kraken_ohlcv import common_timerange; print(common_timerange(Path("user_data/data/kraken")))' | tee artifacts/seed-timerange.txt
+          python -c 'from pathlib import Path; from roundup_crypto_lab.kraken_ohlcv import historical_timerange; print(historical_timerange(Path("user_data/data/kraken")))' | tee artifacts/seed-timerange.txt
       - name: Verify cache contents
         run: |
           test "$(find user_data/data/kraken -maxdepth 1 -type f | wc -l)" -eq 3

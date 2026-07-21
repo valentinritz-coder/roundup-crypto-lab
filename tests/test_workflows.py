@@ -32,3 +32,14 @@ def test_workflow_safety_contract() -> None:
     assert "BTC/EUR ETH/EUR" in update and "--timeframes 4h" in update
     assert "Changing state.*RUNNING" in validation and "PIPESTATUS" not in validation
     assert "path: |\n            artifacts/" in seed
+
+
+def test_seed_uses_historical_validation_and_catchup_is_open_ended() -> None:
+    seed, update, validation = (
+        content(x)
+        for x in ("seed-kraken-data.yml", "update-kraken-data.yml", "freqtrade-validation.yml")
+    )
+    assert "historical_timerange" in seed
+    assert "common_timerange" in update and "common_timerange" in validation
+    assert "--timerange" in update and "--days 8" in update
+    assert "strftime('%Y%m%d')" not in update

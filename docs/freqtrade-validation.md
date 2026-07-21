@@ -105,3 +105,10 @@ supported explicit `--timerange` form, retaining one day of overlap. The refresh
 a recent closed 4-hour candle and contain no gap in the common BTC/EUR–ETH/EUR warm-up and
 evaluation window. Pull requests without a default-branch cache run static/importer validation
 only; that success is not a complete cache-backed Freqtrade validation.
+
+Seed validation deliberately checks only historical integrity: checksums, exact supported pairs/timeframe,
+contiguous common overlap, and the 480-candle warm-up plus 180-day evaluation requirement. It does
+not require a historical Release archive to end today. Update uses an open-ended Unix-second
+Freqtrade `--timerange` for initial catch-up (with one-day overlap), so candles closed later on the
+current UTC day are included; normal current caches continue to use `--days 8`. Only Update and
+cache-backed validation require the final common candle to be recent.
