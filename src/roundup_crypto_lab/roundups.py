@@ -65,9 +65,7 @@ def load_roundups(path: str | Path) -> list[RoundupRecord]:
             try:
                 booking_date = date.fromisoformat((row.get("date") or "").strip())
             except ValueError as exc:
-                raise RoundupInputError(
-                    f"line {line_number}: date must use YYYY-MM-DD"
-                ) from exc
+                raise RoundupInputError(f"line {line_number}: date must use YYYY-MM-DD") from exc
 
             description = (row.get("description") or "").strip()
             if not description:

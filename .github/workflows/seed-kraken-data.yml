@@ -1,0 +1,57 @@
+name: Seed Kraken data
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag: {description: Release tag, required: false, default: kraken-data-seed-v1}
+      asset_name: {description: Release asset name, required: false, default: kraken-btc-eth-eur-4h-seed.zip}
+      archive_sha256: {description: SHA-256 of the release asset, required: true}
+      seed_version: {description: Immutable seed version, required: true}
+permissions: {contents: read}
+concurrency: {group: kraken-ohlcv-pipeline, cancel-in-progress: false}
+env: {FREQTRADE_VERSION: '2026.6', FREQTRADE_COMMIT: b604e2fd70539f7f73d3c62c16ce0b155bbab319}
+jobs:
+  seed:
+    runs-on: ubuntu-latest
+    defaults: {run: {shell: "bash -eo pipefail {0}"}}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.12'}
+      - name: Install laboratory and pinned Freqtrade
+        run: |
+          python -m pip install -e '.[dev]'
+          git clone --depth 1 --branch "$FREQTRADE_VERSION" https://github.com/freqtrade/freqtrade.git .freqtrade-src
+          test "$(git -C .freqtrade-src rev-parse HEAD)" = "$FREQTRADE_COMMIT"
+          python -m pip install -r .freqtrade-src/requirements.txt
+          python -m pip install --no-deps -e .freqtrade-src
+      - name: Download and verify official release asset
+        env: {GH_TOKEN: '${{ github.token }}'}
+        run: |
+          rm -rf user_data/data/kraken
+          mkdir -p artifacts/logs user_data/data/kraken
+          gh release download '${{ inputs.release_tag }}' --repo '${{ github.repository }}' --pattern '${{ inputs.asset_name }}' --output seed.zip
+          echo '${{ inputs.archive_sha256 }}  seed.zip' | sha256sum --check --strict
+      - name: Import official 4h OHLCVT data
+        run: kraken-ohlcv-import seed.zip --datadir user_data/data/kraken --release-tag '${{ inputs.release_tag }}' --asset-name '${{ inputs.asset_name }}' --archive-sha256 '${{ inputs.archive_sha256 }}' --repository-commit "$GITHUB_SHA" --freqtrade-commit "$FREQTRADE_COMMIT" |& tee artifacts/logs/import.txt
+      - name: Verify history and Freqtrade data
+        run: |
+          freqtrade list-data --config user_data/config.json --show-timerange |& tee artifacts/logs/list-data.txt
+          python -c 'from pathlib import Path; from roundup_crypto_lab.kraken_ohlcv import historical_timerange; print(historical_timerange(Path("user_data/data/kraken")))' | tee artifacts/seed-timerange.txt
+      - name: Verify cache contents
+        run: |
+          test "$(find user_data/data/kraken -maxdepth 1 -type f | wc -l)" -eq 3
+          test -f user_data/data/kraken/BTC_EUR-4h.feather
+          test -f user_data/data/kraken/ETH_EUR-4h.feather
+          test -f user_data/data/kraken/kraken-ohlcv-manifest.json
+      - name: Save immutable prepared dataset
+        uses: actions/cache/save@v4
+        with: {path: user_data/data/kraken, key: 'kraken-ohlcv-v1-${{ inputs.seed_version }}-${{ github.run_id }}'}
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: 'kraken-seed-reports-${{ github.run_id }}'
+          path: |
+            artifacts/
+            user_data/data/kraken/kraken-ohlcv-manifest.json
+          if-no-files-found: error
+          retention-days: 30

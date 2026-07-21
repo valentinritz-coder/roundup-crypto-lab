@@ -84,3 +84,36 @@ Artifacts are uploaded even after a failed later step and contain command logs, 
 trades, look-ahead CSV when produced, the temporary dry-run SQLite database when produced,
 Freqtrade version and commit files, and `reproducibility.txt`. They do not make GitHub Actions a
 continuous dry-run host.
+
+## Seeded data pipeline
+
+`Seed Kraken data` verifies a user-provided GitHub Release checksum and imports only
+`XBTEUR_240.csv` (BTC/EUR) and `ETHEUR_240.csv` (ETH/EUR). The importer validates UTC 4-hour
+boundaries, OHLC ranges, duplicate timestamps, gaps, and the Freqtrade 2026.6 Feather convention
+(`BTC_EUR-4h.feather` and `ETH_EUR-4h.feather`). It excludes the current unclosed candle and writes
+checksums into `kraken-ohlcv-manifest.json`. The cache is immutable and contains only Feather data
+and metadata. A weekly update uses eight days of temporary Kraken public trades and does not use
+`--erase`; raw trades are deleted before caching. The validation workflow restores data only, checks
+manifest checksums and calculates an explicit 180-day evaluation range following a 480-candle
+warm-up. The known CCXT unclosed-connector warning is retained in logs as upstream behavior.
+
+## Catch-up, freshness, and PR scope
+
+The weekly update retains an eight-day trade overlap only when the prepared cache is already
+current. When it is older, it asks the pinned Freqtrade CLI for the missing range using its
+supported explicit `--timerange` form, retaining one day of overlap. The refreshed data must reach
+a recent closed 4-hour candle and contain no gap in the common BTC/EUR–ETH/EUR warm-up and
+evaluation window. Pull requests without a default-branch cache run static/importer validation
+only; that success is not a complete cache-backed Freqtrade validation.
+
+Seed validation deliberately checks only historical integrity: checksums, exact supported pairs/timeframe,
+contiguous common overlap, and the 480-candle warm-up plus 180-day evaluation requirement. It does
+not require a historical Release archive to end today. Update uses an open-ended Unix-second
+Freqtrade `--timerange` for initial catch-up (with one-day overlap), so candles closed later on the
+current UTC day are included; normal current caches continue to use `--days 8`. Only Update and
+cache-backed validation require the final common candle to be recent.
+
+Official Kraken 240-minute archive rows are seven columns: `timestamp, open, high, low, close,
+volume, trades` (or `count`). They are not the eight-column API-style VWAP rows. The importer maps
+archive volume from column six and validates the final trade-count column; explicit eight-column
+API-style compatibility maps volume from column seven instead.

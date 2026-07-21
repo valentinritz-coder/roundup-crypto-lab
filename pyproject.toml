@@ -8,16 +8,21 @@ version = "0.1.0"
 description = "Exact-cent bankroll contributions and a dry-run crypto trading laboratory."
 readme = "README.md"
 requires-python = ">=3.12"
-dependencies = []
+dependencies = [
+  "pandas>=2.2,<3",
+  "pyarrow>=16,<24",
+]
 
 [project.optional-dependencies]
 dev = [
   "pytest>=8.3,<9",
+  "PyYAML>=6,<7",
   "ruff>=0.12,<1",
 ]
 
 [project.scripts]
 roundup-report = "roundup_crypto_lab.cli:main"
+kraken-ohlcv-import = "roundup_crypto_lab.kraken_ohlcv:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/roundup_crypto_lab"]
