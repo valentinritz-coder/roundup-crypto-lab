@@ -1,7 +1,6 @@
 import json
 import pathlib
 
-
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 CONFIG = ROOT / "user_data" / "config.json"
 
