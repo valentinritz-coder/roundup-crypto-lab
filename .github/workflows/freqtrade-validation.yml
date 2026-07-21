@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       days:
-        description: Number of public candle-history days to download
+        description: Number of public trade-history days to download and convert
         required: false
         default: "120"
   pull_request:
@@ -21,6 +21,9 @@ on:
       - "user_data/config.json"
       - "user_data/strategies/**"
       - ".github/workflows/freqtrade-validation.yml"
+      - "src/**"
+      - "tests/**"
+      - "pyproject.toml"
 
 permissions:
   contents: read
@@ -35,13 +38,14 @@ env:
   # the commit makes a retargeted tag unable to change this laboratory run.
   FREQTRADE_VERSION: "2026.6"
   FREQTRADE_COMMIT: "b604e2fd70539f7f73d3c62c16ce0b155bbab319"
-  # Kraken's public OHLC endpoint is limited to its recent candle window.
+  # Kraken does not expose backtest-grade historic OHLCV through Freqtrade.
+  # Public trades are downloaded and automatically converted to 4h candles.
   DAYS: ${{ inputs.days || '120' }}
 
 jobs:
   validate:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 90
     defaults:
       run:
         shell: bash -eo pipefail {0}
@@ -87,13 +91,14 @@ jobs:
             --config user_data/config.json \
             2>&1 | tee artifacts/logs/show-config.txt
 
-      - name: Download public Kraken candles
+      - name: Download public Kraken trades and build 4h candles
         run: |
           freqtrade download-data \
             --config user_data/config.json \
             --pairs BTC/EUR ETH/EUR \
             --days "$DAYS" \
             --timeframes 4h \
+            --dl-trades \
             2>&1 | tee artifacts/logs/download-data.txt
           freqtrade list-data \
             --config user_data/config.json \
@@ -165,6 +170,8 @@ jobs:
             echo "exchange=kraken"
             echo "pairs=BTC/EUR,ETH/EUR"
             echo "timeframe=4h"
+            echo "data_source=public_trades_converted_to_ohlcv"
+            echo "download_trades=true"
             echo "dry_run=true"
             echo "data_files:"
             find user_data/data -type f -printf '%p %s bytes\n' 2>/dev/null | sort
