@@ -34,12 +34,14 @@ def test_workflow_safety_contract() -> None:
     assert "path: |\n            artifacts/" in seed
 
 
-def test_seed_uses_historical_validation_and_catchup_is_open_ended() -> None:
+def test_seed_uses_non_strict_validation_and_post_update_workflows_remain_strict() -> None:
     seed, update, validation = (
         content(x)
         for x in ("seed-kraken-data.yml", "update-kraken-data.yml", "freqtrade-validation.yml")
     )
-    assert "historical_timerange" in seed
+    assert "seed_history_timerange" in seed and "report_gaps" in seed
+    assert "common_timerange" not in seed
     assert "common_timerange" in update and "common_timerange" in validation
     assert "--timerange" in update and "--days 8" in update
     assert "strftime('%Y%m%d')" not in update
+    assert all("python -m pip check" in text for text in (seed, update, validation))

@@ -358,25 +358,81 @@ def load_and_verify_manifest(destination: Path) -> dict:
     return manifest
 
 
-def historical_timerange(destination: Path) -> str:
-    """Validate contiguous common history without requiring the archive to be current."""
-    entries = load_and_verify_manifest(destination)["datasets"]
+def _common_history(entries: list[dict]) -> tuple[datetime, datetime, datetime]:
+    """Return common bounds and the earliest candle needed for strict validation."""
     start = max(datetime.fromisoformat(item["first_timestamp"]) for item in entries)
     end = min(datetime.fromisoformat(item["last_timestamp"]) for item in entries)
     required_start = end - INTERVAL * 480 - timedelta(days=180)
     if required_start < start:
         raise ImportError("insufficient common history after 480-candle warm-up")
+    return start, end, required_start
+
+
+def _gap_details(entry: dict, required_start: datetime, end: datetime) -> list[dict]:
+    details = []
+    for gap in entry["missing_intervals"]:
+        gap_start, gap_end = (datetime.fromisoformat(value) for value in gap.split(".."))
+        candles = int((gap_end - gap_start) / INTERVAL) - 1
+        details.append(
+            {
+                "pair": entry["pair"],
+                "start": gap_start,
+                "end": gap_end,
+                "candles": candles,
+                "intersects_validation": gap_end > required_start and gap_start < end,
+            }
+        )
+    return details
+
+
+def gap_diagnostics(destination: Path) -> list[dict]:
+    """Describe every recorded gap, including its strict-validation relevance."""
+    entries = load_and_verify_manifest(destination)["datasets"]
+    _, end, required_start = _common_history(entries)
+    return [detail for entry in entries for detail in _gap_details(entry, required_start, end)]
+
+
+def report_gaps(destination: Path) -> None:
+    """Print auditable gap diagnostics for workflow logs."""
+    diagnostics = gap_diagnostics(destination)
+    if not diagnostics:
+        print("No missing 4h intervals recorded in the manifest.")
+    for gap in diagnostics:
+        print(
+            f"pair={gap['pair']} missing_interval_start={gap['start']} "
+            f"missing_interval_end={gap['end']} missing_4h_candles={gap['candles']} "
+            f"intersects_required_validation={gap['intersects_validation']}"
+        )
+
+
+def seed_history_timerange(destination: Path) -> str:
+    """Accept a verified archive with enough common history, while retaining its gaps."""
+    entries = load_and_verify_manifest(destination)["datasets"]
+    _, end, _ = _common_history(entries)
+    return f"{(end - timedelta(days=180)).strftime('%Y%m%d')}-{end.strftime('%Y%m%d')}"
+
+
+def historical_timerange(destination: Path) -> str:
+    """Backward-compatible name for non-strict Seed archive eligibility."""
+    return seed_history_timerange(destination)
+
+
+def _strict_timerange(destination: Path) -> str:
+    entries = load_and_verify_manifest(destination)["datasets"]
+    _, end, required_start = _common_history(entries)
     for entry in entries:
-        for gap in entry["missing_intervals"]:
-            gap_start, gap_end = (datetime.fromisoformat(value) for value in gap.split(".."))
-            if gap_end > required_start and gap_start < end:
-                raise ImportError("missing 4h interval intersects required validation history")
+        for gap in _gap_details(entry, required_start, end):
+            if gap["intersects_validation"]:
+                raise ImportError(
+                    "missing 4h interval intersects required validation history: "
+                    "pair={pair}, start={start}, end={end}, missing_candles={candles}".format(**gap)
+                )
     return f"{(end - timedelta(days=180)).strftime('%Y%m%d')}-{end.strftime('%Y%m%d')}"
 
 
 def common_timerange(destination: Path, now: datetime | None = None) -> str:
     """Validate historical coverage and require a recent fully closed common candle."""
-    timerange = historical_timerange(destination)
+    timerange = _strict_timerange(destination)
     end = min(
         datetime.fromisoformat(item["last_timestamp"])
         for item in load_and_verify_manifest(destination)["datasets"]
@@ -392,11 +448,23 @@ def update_request(destination: Path, now: datetime | None = None) -> str:
     """Return the supported Freqtrade download option for weekly update or initial catch-up."""
     now = now or datetime.now(UTC)
     closed = now.replace(minute=0, second=0, microsecond=0) - timedelta(hours=now.hour % 4)
-    end = min(
-        datetime.fromisoformat(item["last_timestamp"])
-        for item in load_and_verify_manifest(destination)["datasets"]
-    )
-    if closed - end <= timedelta(days=8):
+    entries = load_and_verify_manifest(destination)["datasets"]
+    try:
+        _, end, required_start = _common_history(entries)
+    except ImportError:
+        # An undersized stale cache cannot have a strict validation window yet, but Update must
+        # still be able to request its open-ended catch-up.
+        end = min(datetime.fromisoformat(item["last_timestamp"]) for item in entries)
+        required_start = end
+    relevant = [
+        gap
+        for entry in entries
+        for gap in _gap_details(entry, required_start, end)
+        if gap["intersects_validation"]
+    ]
+    if not relevant and closed - end <= timedelta(days=8):
         return "--days 8"
     # Freqtrade 2026.6 download-data supports --timerange (mutually exclusive with --days).
-    return f"--timerange {int((end - timedelta(days=1)).timestamp())}-"
+    repair_start = min((gap["start"] + INTERVAL for gap in relevant), default=end)
+    start = min(repair_start, end) - timedelta(days=1)
+    return f"--timerange {int(start.timestamp())}-"

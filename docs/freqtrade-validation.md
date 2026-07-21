@@ -91,8 +91,14 @@ continuous dry-run host.
 `XBTEUR_240.csv` (BTC/EUR) and `ETHEUR_240.csv` (ETH/EUR). The importer validates UTC 4-hour
 boundaries, OHLC ranges, duplicate timestamps, gaps, and the Freqtrade 2026.6 Feather convention
 (`BTC_EUR-4h.feather` and `ETH_EUR-4h.feather`). It excludes the current unclosed candle and writes
-checksums into `kraken-ohlcv-manifest.json`. The cache is immutable and contains only Feather data
-and metadata. A weekly update uses eight days of temporary Kraken public trades and does not use
+checksums into `kraken-ohlcv-manifest.json`. Seed records every missing interval (pair, endpoints,
+missing candle count, and whether it affects strict validation) rather than silently discarding it.
+The cache is immutable and contains only Feather data and metadata. A green Seed means the archive
+was imported and cached; it does not mean the data is complete, repaired, or current.
+
+The required order is **official archive → Seed records gaps → Update repairs gaps and stale tail
+from trades → strict validation → backtest / look-ahead / recursive / dry-run smoke**. Update must
+be green before cache-backed validation. Update uses temporary Kraken public trades and does not use
 `--erase`; raw trades are deleted before caching. The validation workflow restores data only, checks
 manifest checksums and calculates an explicit 180-day evaluation range following a 480-candle
 warm-up. The known CCXT unclosed-connector warning is retained in logs as upstream behavior.
@@ -106,12 +112,19 @@ a recent closed 4-hour candle and contain no gap in the common BTC/EUR–ETH/EUR
 evaluation window. Pull requests without a default-branch cache run static/importer validation
 only; that success is not a complete cache-backed Freqtrade validation.
 
-Seed validation deliberately checks only historical integrity: checksums, exact supported pairs/timeframe,
-contiguous common overlap, and the 480-candle warm-up plus 180-day evaluation requirement. It does
-not require a historical Release archive to end today. Update uses an open-ended Unix-second
-Freqtrade `--timerange` for initial catch-up (with one-day overlap), so candles closed later on the
-current UTC day are included; normal current caches continue to use `--days 8`. Only Update and
-cache-backed validation require the final common candle to be recent.
+Seed validation deliberately checks archive eligibility: checksums, exact supported pairs/timeframe,
+common duration, and the 480-candle warm-up plus 180-day evaluation requirement. It accepts
+repairable internal gaps and does not require a historical Release archive to end today. Update uses
+an open-ended Unix-second Freqtrade `--timerange` from one day before the earliest
+validation-relevant missing candle or stale-tail repair point, so it can reconstruct both internal
+gaps and candles closed later on the current UTC day. Only a recent cache with no relevant gap may
+use `--days 8`. Update and cache-backed validation strictly reject any remaining gap in the common
+warm-up and evaluation window and require the final common candle to be recent.
+
+The laboratory pins compatible project constraints for Freqtrade 2026.6's pandas 3.0.3 and pyarrow
+24.0.0 releases. Each cache-backed workflow runs `python -m pip check` after installing both the
+laboratory and the pinned Freqtrade source; dependency conflicts fail the workflow rather than being
+ignored.
 
 Official Kraken 240-minute archive rows are seven columns: `timestamp, open, high, low, close,
 volume, trades` (or `count`). They are not the eight-column API-style VWAP rows. The importer maps

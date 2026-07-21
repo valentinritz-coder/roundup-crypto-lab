@@ -110,14 +110,21 @@ retain those exact two names, and create the reduced ZIP (for example `zip krake
 `Get-FileHash .\kraken-btc-eth-eur-4h-seed.zip -Algorithm SHA256`, then create the GitHub Release
 and upload that ZIP.
 
-Run **Seed Kraken data** with the release tag, asset name, SHA-256 and a new seed version. It
-imports the closed candles to a cache. **Update Kraken data** restores that cache weekly, downloads
-eight days of temporary public trades, and merges only reconstructed closed candles. Validation
-restores (but never saves) the newest cache. Release assets are user-retained source inputs, caches
-hold prepared OHLCV only, and validation artifacts hold logs/reports—not market data. Re-run Seed
-after cache eviction. Quarterly files may be incomplete or missing; inspect reported gaps. At least
-480 4h warm-up candles plus 180 effective validation days are required. Technical validation does
-not establish profitability.
+Run **Seed Kraken data** with the release tag, asset name, SHA-256 and a new seed version. The
+pipeline is: **official archive → Seed imports and records gaps → Update repairs gaps and stale tail
+from trades → strict validation → backtest / look-ahead / recursive / dry-run smoke**. Seed verifies
+the archive and caches it when there are at least 480 4h warm-up candles plus 180 effective
+validation days, but it deliberately preserves and reports any missing intervals. A green Seed
+therefore means only that the historical archive was imported and cached—it does not mean the
+market dataset is complete or current. **Update must be green before cache-backed Freqtrade
+validation.**
+
+Update restores the cache weekly and uses eight days of temporary public trades only when no
+validation-relevant gap needs repair. Otherwise it requests an open-ended UTC Unix timerange from
+one day before the earliest required repair point, then merges reconstructed closed candles.
+Validation restores (but never saves) the newest cache. Release assets are user-retained source
+inputs, caches hold prepared OHLCV only, and validation artifacts hold logs/reports—not market
+data. Re-run Seed after cache eviction. Technical validation does not establish profitability.
 
 The official reduced Kraken archive uses the seven columns `timestamp, open, high, low, close,
 volume, trades` (with `trades` also called `count` in some headers). It does **not** include VWAP;

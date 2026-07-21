@@ -203,6 +203,115 @@ def test_update_request_uses_weekly_or_deterministic_catchup(tmp_path: Path) -> 
     assert update_request(tmp_path, now=now).startswith("--timerange ")
 
 
+def test_seed_accepts_repairable_gap_but_strict_validation_rejects_it(tmp_path: Path) -> None:
+    from roundup_crypto_lab.kraken_ohlcv import (
+        common_timerange,
+        gap_diagnostics,
+        regenerate_manifest,
+        seed_history_timerange,
+        write_feather,
+    )
+
+    base = datetime(2025, 1, 1, tzinfo=UTC)
+    candles = [
+        (base + timedelta(hours=4 * n), Decimal(1), Decimal(3), Decimal(1), Decimal(2), Decimal(4))
+        for n in range(1600)
+    ]
+    write_feather(candles, tmp_path, "BTC/EUR")
+    write_feather(candles[:1000] + candles[1001:], tmp_path, "ETH/EUR")
+    metadata = {"source_release_tag": "t", "source_asset_name": "a", "source_archive_sha256": "s"}
+    regenerate_manifest(
+        tmp_path,
+        source_metadata=metadata,
+        repository_commit="r",
+        freqtrade_version="2026.6",
+        freqtrade_commit="c",
+    )
+    assert seed_history_timerange(tmp_path)
+    diagnostic = gap_diagnostics(tmp_path)[0]
+    assert diagnostic["pair"] == "ETH/EUR"
+    assert diagnostic["candles"] == 1 and diagnostic["intersects_validation"]
+    with pytest.raises(ImportError, match=r"pair=ETH/EUR.*missing_candles=1"):
+        common_timerange(tmp_path, now=base + timedelta(hours=4 * 1600))
+
+    # A reconstructed missing candle is merged and the regenerated manifest becomes strict-valid.
+    recent = tmp_path / "recent"
+    recent.mkdir()
+    write_feather(candles[1000:1001], recent, "BTC/EUR")
+    write_feather(candles[1000:1001], recent, "ETH/EUR")
+    from roundup_crypto_lab.merge_kraken_data import merge
+
+    merge(tmp_path, recent, now=base + timedelta(hours=4 * 1600))
+    assert not gap_diagnostics(tmp_path)
+    assert common_timerange(tmp_path, now=base + timedelta(hours=4 * 1600))
+
+
+def test_update_request_repairs_relevant_gap_before_stale_tail(tmp_path: Path) -> None:
+    from roundup_crypto_lab.kraken_ohlcv import regenerate_manifest, write_feather
+
+    base = datetime(2025, 1, 1, tzinfo=UTC)
+    candles = [
+        (base + timedelta(hours=4 * n), Decimal(1), Decimal(3), Decimal(1), Decimal(2), Decimal(4))
+        for n in range(1600)
+    ]
+    write_feather(candles, tmp_path, "BTC/EUR")
+    missing = candles[1000]
+    write_feather(candles[:1000] + candles[1001:], tmp_path, "ETH/EUR")
+    regenerate_manifest(
+        tmp_path,
+        source_metadata={
+            "source_release_tag": "t",
+            "source_asset_name": "a",
+            "source_archive_sha256": "s",
+        },
+        repository_commit="r",
+        freqtrade_version="2026.6",
+        freqtrade_commit="c",
+    )
+    request = update_request(tmp_path, now=base + timedelta(hours=4 * 1601))
+    assert request.startswith("--timerange ") and request.endswith("-")
+    assert int(request.split()[1][:-1]) < int(missing[0].timestamp())
+
+
+def test_gap_outside_strict_validation_window_does_not_block_or_expand_update(
+    tmp_path: Path,
+) -> None:
+    from roundup_crypto_lab.kraken_ohlcv import (
+        common_timerange,
+        gap_diagnostics,
+        regenerate_manifest,
+        write_feather,
+    )
+
+    now = datetime(2026, 1, 20, tzinfo=UTC)
+    candles = [
+        (
+            now - timedelta(hours=4 * (1600 - n)),
+            Decimal(1),
+            Decimal(3),
+            Decimal(1),
+            Decimal(2),
+            Decimal(4),
+        )
+        for n in range(1600)
+    ]
+    write_feather(candles, tmp_path, "BTC/EUR")
+    write_feather(candles[:10] + candles[11:], tmp_path, "ETH/EUR")
+    regenerate_manifest(
+        tmp_path,
+        source_metadata={
+            "source_release_tag": "t",
+            "source_asset_name": "a",
+            "source_archive_sha256": "s",
+        },
+        repository_commit="r",
+        freqtrade_version="2026.6",
+        freqtrade_commit="c",
+    )
+    assert not gap_diagnostics(tmp_path)[0]["intersects_validation"]
+    assert common_timerange(tmp_path, now=now) and update_request(tmp_path, now=now) == "--days 8"
+
+
 def test_stale_seed_is_historically_valid_but_not_current(tmp_path: Path) -> None:
     from roundup_crypto_lab.kraken_ohlcv import (
         common_timerange,
