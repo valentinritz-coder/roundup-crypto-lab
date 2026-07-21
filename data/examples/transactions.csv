@@ -1,0 +1,6 @@
+date,description,amount,transaction_id
+2026-07-01,Boulangerie,-4.32,example-001
+2026-07-01,Station service,-63.17,example-002
+2026-07-02,Salaire,4200.00,example-003
+2026-07-03,Livre,-12.00,example-004
+2026-07-04,Cafe,-2.00,example-005
