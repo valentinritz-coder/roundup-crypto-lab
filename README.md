@@ -99,3 +99,22 @@ Expected roundups: EUR 0.68 and EUR 0.83.
 Use [`codex/001-bootstrap-and-validate.md`](codex/001-bootstrap-and-validate.md). Codex should
 work through a focused pull request and rely on the workflow artifacts as evidence rather than
 claiming that a command probably works because the YAML looks emotionally convincing.
+
+## Reproducible Kraken seed data
+
+Normal validation never downloads market history. Create a Release asset named
+`kraken-btc-eth-eur-4h-seed.zip` for tag `kraken-data-seed-v1`; it must contain **only**
+`XBTEUR_240.csv` and `ETHEUR_240.csv`. Kraken calls Bitcoin `XBT`, so `XBTEUR` maps to BTC/EUR;
+`_240` is a 240-minute (4-hour) interval. Download the official Kraken OHLCVT quarterly files,
+retain those exact two names, and create the reduced ZIP (for example `zip kraken-btc-eth-eur-4h-seed.zip XBTEUR_240.csv ETHEUR_240.csv`). In PowerShell calculate its digest with
+`Get-FileHash .\kraken-btc-eth-eur-4h-seed.zip -Algorithm SHA256`, then create the GitHub Release
+and upload that ZIP.
+
+Run **Seed Kraken data** with the release tag, asset name, SHA-256 and a new seed version. It
+imports the closed candles to a cache. **Update Kraken data** restores that cache weekly, downloads
+eight days of temporary public trades, and merges only reconstructed closed candles. Validation
+restores (but never saves) the newest cache. Release assets are user-retained source inputs, caches
+hold prepared OHLCV only, and validation artifacts hold logs/reports—not market data. Re-run Seed
+after cache eviction. Quarterly files may be incomplete or missing; inspect reported gaps. At least
+480 4h warm-up candles plus 180 effective validation days are required. Technical validation does
+not establish profitability.

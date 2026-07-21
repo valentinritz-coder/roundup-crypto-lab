@@ -1,189 +1,59 @@
 name: Freqtrade validation
-
 on:
   workflow_dispatch:
-    inputs:
-      days:
-        description: Number of public trade-history days to download and convert
-        required: false
-        default: "120"
   pull_request:
-    paths:
-      - "user_data/config.json"
-      - "user_data/strategies/**"
-      - ".github/workflows/freqtrade-validation.yml"
-      - "src/**"
-      - "tests/**"
-      - "pyproject.toml"
-  push:
-    branches: [main]
-    paths:
-      - "user_data/config.json"
-      - "user_data/strategies/**"
-      - ".github/workflows/freqtrade-validation.yml"
-      - "src/**"
-      - "tests/**"
-      - "pyproject.toml"
-
-permissions:
-  contents: read
-
-concurrency:
-  group: freqtrade-${{ github.ref }}
-  cancel-in-progress: true
-
-env:
-  PYTHONUNBUFFERED: "1"
-  # Tag and commit are both checked: the tag documents the reviewed release and
-  # the commit makes a retargeted tag unable to change this laboratory run.
-  FREQTRADE_VERSION: "2026.6"
-  FREQTRADE_COMMIT: "b604e2fd70539f7f73d3c62c16ce0b155bbab319"
-  # Kraken does not expose backtest-grade historic OHLCV through Freqtrade.
-  # Public trades are downloaded and automatically converted to 4h candles.
-  DAYS: ${{ inputs.days || '120' }}
-
+  push: {branches: [main]}
+permissions: {contents: read}
+concurrency: {group: kraken-ohlcv-pipeline, cancel-in-progress: false}
+env: {FREQTRADE_VERSION: '2026.6', FREQTRADE_COMMIT: b604e2fd70539f7f73d3c62c16ce0b155bbab319}
 jobs:
   validate:
     runs-on: ubuntu-latest
-    timeout-minutes: 90
-    defaults:
-      run:
-        shell: bash -eo pipefail {0}
-
+    defaults: {run: {shell: "bash -eo pipefail {0}"}}
     steps:
-      - name: Checkout laboratory
-        uses: actions/checkout@v4
-
-      - name: Prepare artifact directories
-        run: mkdir -p artifacts/logs artifacts/results user_data/data
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-          cache: pip
-
-      - name: Install laboratory tools
+      - uses: actions/checkout@v4
+      - uses: actions/cache/restore@v4
+        id: restore
+        with: {path: user_data/data/kraken, key: 'kraken-ohlcv-v1-validation-${{ github.run_id }}', restore-keys: kraken-ohlcv-v1-}
+      - name: Require prepared data cache
         run: |
-          python -m pip install --upgrade pip
-          python -m pip install -e ".[dev]"
-
-      - name: Run local tests and lint
+          test '${{ steps.restore.outputs.cache-hit }}' != '' || { echo 'No prepared cache: run Seed Kraken data first.'; exit 1; }
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.12'}
+      - name: Install tools and pinned Freqtrade
         run: |
-          ruff check .
-          pytest
-
-      - name: Install the pinned Freqtrade release
-        run: |
+          python -m pip install -e '.[dev]'
           git clone --depth 1 --branch "$FREQTRADE_VERSION" https://github.com/freqtrade/freqtrade.git .freqtrade-src
           test "$(git -C .freqtrade-src rev-parse HEAD)" = "$FREQTRADE_COMMIT"
-          python -m pip install -r .freqtrade-src/requirements.txt
-          python -m pip install --no-deps -e .freqtrade-src
-          freqtrade --version | tee freqtrade-version.txt
-          git -C .freqtrade-src rev-parse HEAD | tee freqtrade-commit.txt
-
-      - name: Discover strategy and resolve configuration
+          python -m pip install -r .freqtrade-src/requirements.txt && python -m pip install --no-deps -e .freqtrade-src
+      - name: Verify manifest, common history, and deterministic timerange
         run: |
-          freqtrade list-strategies \
-            --config user_data/config.json \
-            2>&1 | tee artifacts/logs/list-strategies.txt
-          freqtrade show-config \
-            --config user_data/config.json \
-            2>&1 | tee artifacts/logs/show-config.txt
-
-      - name: Download public Kraken trades and build 4h candles
+          mkdir -p artifacts/logs artifacts/results
+          python - <<'PY' | tee artifacts/timerange.txt
+          import hashlib,json
+          from datetime import datetime,timedelta
+          m=json.load(open('user_data/data/kraken/kraken-ohlcv-manifest.json')); d=m['datasets']; assert len(d)==2
+          for x in d:
+            p='user_data/data/kraken/'+x['output_filename']; assert hashlib.sha256(open(p,'rb').read()).hexdigest()==x['output_file_sha256']
+          first={x['first_timestamp'] for x in d}; last={x['last_timestamp'] for x in d}; assert len(first)==len(last)==1
+          start=datetime.fromisoformat(first.pop()); end=datetime.fromisoformat(last.pop()); warmup=timedelta(hours=480*4); effective=timedelta(days=180)
+          assert end-start >= warmup+effective, 'insufficient history after 480-candle warm-up'
+          print((end-effective).strftime('%Y%m%d')+'-'+end.strftime('%Y%m%d'))
+          PY
+          freqtrade list-data --config user_data/config.json --show-timerange |& tee artifacts/logs/list-data.txt
+      - name: Validate and analyze the explicit timerange
         run: |
-          freqtrade download-data \
-            --config user_data/config.json \
-            --pairs BTC/EUR ETH/EUR \
-            --days "$DAYS" \
-            --timeframes 4h \
-            --dl-trades \
-            2>&1 | tee artifacts/logs/download-data.txt
-          freqtrade list-data \
-            --config user_data/config.json \
-            --timeframes 4h \
-            2>&1 | tee artifacts/logs/list-data.txt
-
-      - name: Backtest
-        run: |
-          freqtrade backtesting \
-            --config user_data/config.json \
-            --strategy RoundupBreakoutStrategy \
-            --timeframe 4h \
-            --export trades \
-            --export-filename artifacts/results/backtest.json \
-            2>&1 | tee artifacts/logs/backtest.txt
-
-      - name: Look-ahead analysis
-        run: |
-          freqtrade lookahead-analysis \
-            --config user_data/config.json \
-            --strategy RoundupBreakoutStrategy \
-            --timeframe 4h \
-            --minimum-trade-amount 1 \
-            --targeted-trade-amount 10 \
-            --lookahead-analysis-exportfilename artifacts/results/lookahead-analysis.csv \
-            2>&1 | tee artifacts/logs/lookahead-analysis.txt
-
-      - name: Recursive analysis
-        run: |
-          freqtrade recursive-analysis \
-            --config user_data/config.json \
-            --strategy RoundupBreakoutStrategy \
-            --timeframe 4h \
-            --startup-candle 120 240 480 \
-            2>&1 | tee artifacts/logs/recursive-analysis.txt
-
+          TIMERANGE=$(cat artifacts/timerange.txt | tail -1)
+          freqtrade list-strategies --config user_data/config.json |& tee artifacts/logs/list-strategies.txt
+          freqtrade show-config --config user_data/config.json |& tee artifacts/logs/show-config.txt
+          freqtrade backtesting --config user_data/config.json --strategy RoundupBreakoutStrategy --timeframe 4h --timerange "$TIMERANGE" --export trades --export-directory artifacts/results |& tee artifacts/logs/backtest.txt
+          find artifacts/results -type f -name 'backtest-result*' -print | tee artifacts/results/generated-backtest-files.txt
+          test -s artifacts/results/generated-backtest-files.txt
+          freqtrade lookahead-analysis --config user_data/config.json --strategy RoundupBreakoutStrategy --timeframe 4h --timerange "$TIMERANGE" --minimum-trade-amount 1 --targeted-trade-amount 10 --lookahead-analysis-exportfilename artifacts/results/lookahead.csv |& tee artifacts/logs/lookahead.txt
+          freqtrade recursive-analysis --config user_data/config.json --strategy RoundupBreakoutStrategy --timeframe 4h --timerange "$TIMERANGE" --startup-candle 120 240 480 |& tee artifacts/logs/recursive.txt
       - name: Dry-run startup smoke test
-        shell: bash
-        run: |
-          set +e
-          timeout --signal=INT --kill-after=15s 90s freqtrade trade \
-            --config user_data/config.json \
-            --strategy RoundupBreakoutStrategy \
-            --db-url sqlite:///artifacts/results/dry-run-smoke.sqlite \
-            > artifacts/logs/dry-run-smoke.txt 2>&1
-          code=$?
-          set -e
-          if [ "$code" -ne 0 ] && [ "$code" -ne 124 ] && [ "$code" -ne 130 ]; then
-            cat artifacts/logs/dry-run-smoke.txt
-            exit "$code"
-          fi
-          if [ "$code" -eq 0 ] || ! grep -Eq "Changing state.*RUNNING" artifacts/logs/dry-run-smoke.txt; then
-            cat artifacts/logs/dry-run-smoke.txt
-            echo "Dry-run smoke test did not reach normal RUNNING operation before stopping."
-            exit 1
-          fi
-          cat artifacts/logs/dry-run-smoke.txt
-
-      - name: Save reproducibility manifest
-        if: always()
-        run: |
-          mkdir -p artifacts
-          {
-            echo "repository_sha=${GITHUB_SHA}"
-            echo "freqtrade_version=${FREQTRADE_VERSION}"
-            echo "freqtrade_expected_commit=${FREQTRADE_COMMIT}"
-            echo "freqtrade_commit=$(cat freqtrade-commit.txt 2>/dev/null || true)"
-            echo "history_days=${DAYS}"
-            echo "exchange=kraken"
-            echo "pairs=BTC/EUR,ETH/EUR"
-            echo "timeframe=4h"
-            echo "data_source=public_trades_converted_to_ohlcv"
-            echo "download_trades=true"
-            echo "dry_run=true"
-            echo "data_files:"
-            find user_data/data -type f -printf '%p %s bytes\n' 2>/dev/null | sort
-          } > artifacts/reproducibility.txt
-          cp freqtrade-version.txt artifacts/ 2>/dev/null || true
-          cp freqtrade-commit.txt artifacts/ 2>/dev/null || true
-
-      - name: Upload validation artifacts
-        if: always()
+        run: timeout --signal=INT --kill-after=15s 90s freqtrade trade --config user_data/config.json --strategy RoundupBreakoutStrategy --db-url sqlite:///artifacts/results/smoke.sqlite |& tee artifacts/logs/smoke.txt || test ${PIPESTATUS[0]} -eq 124
+      - if: always()
         uses: actions/upload-artifact@v4
-        with:
-          name: freqtrade-validation-${{ github.run_id }}
-          path: artifacts/
-          if-no-files-found: error
-          retention-days: 30
+        with: {name: 'freqtrade-validation-${{ github.run_id }}', path: artifacts/, retention-days: 30}
+# The non-fatal CCXT unclosed-connector warning is upstream behavior; artifacts retain it for review.

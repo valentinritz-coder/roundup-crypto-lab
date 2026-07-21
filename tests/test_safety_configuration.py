@@ -3,7 +3,7 @@ import pathlib
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 CONFIG = ROOT / "user_data" / "config.json"
-WORKFLOW = ROOT / ".github" / "workflows" / "freqtrade-validation.yml"
+WORKFLOW = ROOT / ".github" / "workflows" / "update-kraken-data.yml"
 
 
 def load_config() -> dict:
@@ -45,4 +45,5 @@ def test_kraken_history_download_uses_public_trades() -> None:
     workflow = WORKFLOW.read_text(encoding="utf-8")
 
     assert "--dl-trades" in workflow
-    assert "data_source=public_trades_converted_to_ohlcv" in workflow
+    assert "--days 8" in workflow
+    assert "--erase" not in workflow

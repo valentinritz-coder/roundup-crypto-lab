@@ -12,6 +12,11 @@ build/
 
 # Freqtrade runtime and private data
 user_data/data/
+*.feather
+*.zip
+XBTEUR_240.csv
+ETHEUR_240.csv
+tmp-kraken-trades/
 user_data/logs/*
 !user_data/logs/.gitkeep
 user_data/*.sqlite*
