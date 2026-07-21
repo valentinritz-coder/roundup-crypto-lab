@@ -112,3 +112,8 @@ not require a historical Release archive to end today. Update uses an open-ended
 Freqtrade `--timerange` for initial catch-up (with one-day overlap), so candles closed later on the
 current UTC day are included; normal current caches continue to use `--days 8`. Only Update and
 cache-backed validation require the final common candle to be recent.
+
+Official Kraken 240-minute archive rows are seven columns: `timestamp, open, high, low, close,
+volume, trades` (or `count`). They are not the eight-column API-style VWAP rows. The importer maps
+archive volume from column six and validates the final trade-count column; explicit eight-column
+API-style compatibility maps volume from column seven instead.

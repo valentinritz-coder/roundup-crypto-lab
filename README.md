@@ -118,3 +118,7 @@ hold prepared OHLCV only, and validation artifacts hold logs/reports—not marke
 after cache eviction. Quarterly files may be incomplete or missing; inspect reported gaps. At least
 480 4h warm-up candles plus 180 effective validation days are required. Technical validation does
 not establish profitability.
+
+The official reduced Kraken archive uses the seven columns `timestamp, open, high, low, close,
+volume, trades` (with `trades` also called `count` in some headers). It does **not** include VWAP;
+the importer retains the OHLC and volume fields and validates the trade count separately.

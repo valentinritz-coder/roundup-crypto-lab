@@ -107,6 +107,13 @@ def _number(value: str, field: str) -> Decimal:
     return result
 
 
+def _trade_count(value: str) -> int:
+    number = _number(value, "trade count")
+    if number != number.to_integral_value():
+        raise ImportError("trade count must be an integral non-negative number")
+    return int(number)
+
+
 def read_kraken_csv(path: Path, now: datetime | None = None) -> tuple[list, list[str], int]:
     now = now or datetime.now(UTC)
     rows: dict[datetime, tuple] = {}
@@ -117,25 +124,40 @@ def read_kraken_csv(path: Path, now: datetime | None = None) -> tuple[list, list
         if first is None:
             raise ImportError(f"empty CSV: {path.name}")
         header = [item.strip().lower() for item in first]
+        header_rows = {
+            ("time", "open", "high", "low", "close", "volume", "count"),
+            ("timestamp", "open", "high", "low", "close", "volume", "count"),
+            ("time", "open", "high", "low", "close", "volume", "trades"),
+            ("timestamp", "open", "high", "low", "close", "volume", "trades"),
+            ("time", "open", "high", "low", "close", "vwap", "volume", "count"),
+            ("timestamp", "open", "high", "low", "close", "vwap", "volume", "count"),
+        }
         if header[0] in {"time", "timestamp"}:
-            expected = ["open", "high", "low", "close", "vwap", "volume", "count"]
-            if header[1:] != expected:
+            if tuple(header) not in header_rows:
                 raise ImportError(f"unexpected Kraken OHLCVT header in {path.name}")
             data_rows = reader
         else:
             data_rows = iter([first, *reader])
         for line, row in enumerate(data_rows, start=2 if header[0] in {"time", "timestamp"} else 1):
-            if len(row) != 8:
-                raise ImportError(f"malformed row {line} in {path.name}: expected 8 columns")
+            if len(row) not in {7, 8}:
+                raise ImportError(f"malformed row {line} in {path.name}: expected 7 or 8 columns")
             timestamp = _timestamp(row[0])
             if timestamp.minute or timestamp.second or timestamp.microsecond or timestamp.hour % 4:
                 raise ImportError(
                     f"timestamp is not aligned to a 4h UTC boundary: {timestamp.isoformat()}"
                 )
+            volume_column, count_column = (5, 6) if len(row) == 7 else (6, 7)
             open_, high, low, close, volume = (
                 _number(row[i], name)
-                for i, name in ((1, "open"), (2, "high"), (3, "low"), (4, "close"), (6, "volume"))
+                for i, name in (
+                    (1, "open"),
+                    (2, "high"),
+                    (3, "low"),
+                    (4, "close"),
+                    (volume_column, "volume"),
+                )
             )
+            _trade_count(row[count_column])
             candle = (timestamp, open_, high, low, close, volume)
             if high < max(open_, close, low) or low > min(open_, close, high):
                 raise ImportError(f"invalid OHLC range at {timestamp.isoformat()}")

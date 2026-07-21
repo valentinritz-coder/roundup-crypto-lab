@@ -15,7 +15,7 @@ from roundup_crypto_lab.kraken_ohlcv import (
 
 
 def row(timestamp: int, close: str = "2") -> str:
-    return f"{timestamp},1,3,1,{close},2,4,1\n"
+    return f"{timestamp},1,3,1,{close},4,1\n"
 
 
 def test_exact_files_ignore_apple_and_confusing_names(tmp_path: Path) -> None:
@@ -57,7 +57,7 @@ def test_zip_path_traversal_rejected(tmp_path: Path) -> None:
 
 def test_csv_utc_alignment_duplicates_gaps_and_open_candle(tmp_path: Path) -> None:
     csv = tmp_path / "XBTEUR_240.csv"
-    csv.write_text("time,open,high,low,close,vwap,volume,count\n" + row(0) + row(0) + row(8 * 3600))
+    csv.write_text("time,open,high,low,close,volume,count\n" + row(0) + row(0) + row(8 * 3600))
     candles, gaps, duplicates = read_kraken_csv(csv, datetime(1970, 1, 1, 13, tzinfo=UTC))
     assert [x[0] for x in candles] == [
         datetime(1970, 1, 1, tzinfo=UTC),
@@ -68,7 +68,7 @@ def test_csv_utc_alignment_duplicates_gaps_and_open_candle(tmp_path: Path) -> No
 
 def test_conflicting_duplicate_and_bad_alignment_rejected(tmp_path: Path) -> None:
     csv = tmp_path / "x.csv"
-    csv.write_text(row(0) + "0,1,3,1,2,2,5,1\n")
+    csv.write_text(row(0) + "0,1,3,1,2,5,1\n")
     with pytest.raises(ImportError, match="conflicting"):
         read_kraken_csv(csv, datetime(1970, 1, 2, tzinfo=UTC))
     csv.write_text(row(60))
@@ -236,3 +236,45 @@ def test_stale_seed_is_historically_valid_but_not_current(tmp_path: Path) -> Non
     request = update_request(tmp_path, now=now)
     assert request.startswith("--timerange ") and request.endswith("-")
     assert len(request.split()[1].split("-")[0]) == 10
+
+
+REAL_ROWS = (
+    "1704067200,38404.6,38829.9,38394.4,38436.0,45.23129588,1726\n"
+    "1704081600,38436.0,38593.4,38342.8,38562.0,13.22005934,1753\n"
+)
+
+
+def test_official_seven_column_rows_map_volume_and_accept_trade_count(tmp_path: Path) -> None:
+    path = tmp_path / "official.csv"
+    path.write_text(REAL_ROWS)
+    candles, _, _ = read_kraken_csv(path, datetime(2024, 1, 2, tzinfo=UTC))
+    assert [candle[-1] for candle in candles] == [Decimal("45.23129588"), Decimal("13.22005934")]
+
+
+def test_supported_seven_column_headers_and_explicit_eight_column_mapping(tmp_path: Path) -> None:
+    headers = (
+        "time,open,high,low,close,volume,count",
+        "timestamp,open,high,low,close,volume,count",
+        "time,open,high,low,close,volume,trades",
+        "timestamp,open,high,low,close,volume,trades",
+    )
+    for index, header in enumerate(headers):
+        path = tmp_path / f"header-{index}.csv"
+        path.write_text(header + "\n" + REAL_ROWS)
+        assert len(read_kraken_csv(path, datetime(2024, 1, 2, tzinfo=UTC))[0]) == 2
+    api = tmp_path / "api.csv"
+    api.write_text("1704067200,1,3,1,2,99,7.5,4\n")
+    assert read_kraken_csv(api, datetime(2024, 1, 2, tzinfo=UTC))[0][0][-1] == Decimal("7.5")
+
+
+def test_invalid_column_counts_and_trade_counts_are_rejected(tmp_path: Path) -> None:
+    path = tmp_path / "bad.csv"
+    for text in (
+        "1704067200,1,3,1,2,4\n",
+        "1704067200,1,3,1,2,4,1,extra,extra\n",
+        "1704067200,1,3,1,2,4,1.5\n",
+        "1704067200,1,3,1,2,4,-1\n",
+    ):
+        path.write_text(text)
+        with pytest.raises(ImportError):
+            read_kraken_csv(path, datetime(2024, 1, 2, tzinfo=UTC))
