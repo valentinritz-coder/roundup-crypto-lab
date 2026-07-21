@@ -1,0 +1,159 @@
+name: Freqtrade validation
+
+on:
+  workflow_dispatch:
+    inputs:
+      days:
+        description: Number of public candle-history days to download
+        required: false
+        default: "2200"
+  pull_request:
+    paths:
+      - "user_data/config.json"
+      - "user_data/strategies/**"
+      - ".github/workflows/freqtrade-validation.yml"
+  push:
+    branches: [main]
+    paths:
+      - "user_data/config.json"
+      - "user_data/strategies/**"
+      - ".github/workflows/freqtrade-validation.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: freqtrade-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHONUNBUFFERED: "1"
+  FREQTRADE_REF: stable
+  DAYS: ${{ inputs.days || '2200' }}
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout laboratory
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install laboratory tools
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]"
+
+      - name: Install Freqtrade from its stable branch
+        run: |
+          git clone --depth 1 --branch "$FREQTRADE_REF" https://github.com/freqtrade/freqtrade.git .freqtrade-src
+          python -m pip install -r .freqtrade-src/requirements.txt
+          python -m pip install -e .freqtrade-src
+          freqtrade --version | tee freqtrade-version.txt
+          git -C .freqtrade-src rev-parse HEAD | tee freqtrade-commit.txt
+
+      - name: Run local tests and lint
+        run: |
+          ruff check .
+          pytest
+
+      - name: Discover strategy and resolve configuration
+        run: |
+          mkdir -p artifacts/logs artifacts/results user_data/data
+          freqtrade list-strategies \
+            --config user_data/config.json \
+            --strategy-path user_data/strategies \
+            | tee artifacts/logs/list-strategies.txt
+          freqtrade show-config \
+            --config user_data/config.json \
+            | tee artifacts/logs/show-config.txt
+
+      - name: Download public Kraken candles
+        run: |
+          freqtrade download-data \
+            --config user_data/config.json \
+            --pairs BTC/EUR ETH/EUR \
+            --days "$DAYS" \
+            --timeframes 4h \
+            | tee artifacts/logs/download-data.txt
+
+      - name: Backtest
+        run: |
+          freqtrade backtesting \
+            --config user_data/config.json \
+            --strategy RoundupBreakoutStrategy \
+            --strategy-path user_data/strategies \
+            --timeframe 4h \
+            --export trades \
+            --export-filename artifacts/results/backtest.json \
+            | tee artifacts/logs/backtest.txt
+
+      - name: Look-ahead analysis
+        run: |
+          freqtrade lookahead-analysis \
+            --config user_data/config.json \
+            --strategy RoundupBreakoutStrategy \
+            --strategy-path user_data/strategies \
+            --timeframe 4h \
+            --minimum-trade-amount 1 \
+            --targeted-trade-amount 10 \
+            | tee artifacts/logs/lookahead-analysis.txt
+
+      - name: Recursive analysis
+        run: |
+          freqtrade recursive-analysis \
+            --config user_data/config.json \
+            --strategy RoundupBreakoutStrategy \
+            --strategy-path user_data/strategies \
+            --timeframe 4h \
+            | tee artifacts/logs/recursive-analysis.txt
+
+      - name: Dry-run startup smoke test
+        shell: bash
+        run: |
+          set +e
+          timeout --signal=INT 90s freqtrade trade \
+            --config user_data/config.json \
+            --strategy RoundupBreakoutStrategy \
+            --strategy-path user_data/strategies \
+            --db-url sqlite:///artifacts/results/dry-run-smoke.sqlite \
+            > artifacts/logs/dry-run-smoke.txt 2>&1
+          code=$?
+          set -e
+          if [ "$code" -ne 0 ] && [ "$code" -ne 124 ] && [ "$code" -ne 130 ]; then
+            cat artifacts/logs/dry-run-smoke.txt
+            exit "$code"
+          fi
+          cat artifacts/logs/dry-run-smoke.txt
+
+      - name: Save reproducibility manifest
+        if: always()
+        run: |
+          {
+            echo "repository_sha=${GITHUB_SHA}"
+            echo "freqtrade_ref=${FREQTRADE_REF}"
+            echo "freqtrade_commit=$(cat freqtrade-commit.txt 2>/dev/null || true)"
+            echo "history_days=${DAYS}"
+            echo "exchange=kraken"
+            echo "pairs=BTC/EUR,ETH/EUR"
+            echo "timeframe=4h"
+            echo "dry_run=true"
+          } > artifacts/reproducibility.txt
+          cp freqtrade-version.txt artifacts/ 2>/dev/null || true
+          cp freqtrade-commit.txt artifacts/ 2>/dev/null || true
+
+      - name: Upload validation artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: freqtrade-validation-${{ github.run_id }}
+          path: artifacts/
+          if-no-files-found: warn
+          retention-days: 30
