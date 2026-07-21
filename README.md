@@ -34,11 +34,12 @@ Two workflows are included:
 
 - **Python CI** runs Ruff and the unit tests.
 - **Freqtrade validation** installs Freqtrade on an ephemeral Ubuntu runner, downloads public
-  Kraken candles, discovers the strategy, runs a backtest, checks look-ahead and recursive
-  indicator behavior, then performs a short dry-run startup smoke test.
+  Kraken trades, converts them into 4-hour candles, discovers the strategy, runs a backtest,
+  checks look-ahead and recursive indicator behavior, then performs a short dry-run startup smoke
+  test.
 
 The Freqtrade workflow can be started manually from **Actions → Freqtrade validation → Run
-workflow**. It also runs when the configuration or strategy changes.
+workflow**. It also runs when the configuration, strategy, package, tests, or workflow change.
 
 Every Freqtrade run uploads an artifact containing:
 
@@ -83,7 +84,7 @@ Expected roundups: EUR 0.68 and EUR 0.83.
 
 ## Initial Freqtrade scope
 
-- Kraken public market data.
+- Kraken public trade data converted to OHLCV.
 - BTC/EUR and ETH/EUR only.
 - 4-hour candles.
 - Spot and long-only.
