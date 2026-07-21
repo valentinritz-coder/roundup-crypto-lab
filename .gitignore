@@ -1,0 +1,38 @@
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+dist/
+build/
+.env
+.env.*
+!.env.example
+
+# Freqtrade runtime and private data
+user_data/data/
+user_data/logs/*
+!user_data/logs/.gitkeep
+user_data/*.sqlite*
+user_data/backtest_results/
+user_data/hyperopt_results/
+user_data/plot/
+user_data/freqaimodels/
+
+# Bank exports and generated contribution ledgers
+data/imports/
+data/private/
+data/generated/
+*.bank.csv
+
+# Secrets
+*secret*
+*apikey*
+*api_key*
+
+# GitHub Actions local scratch output
+artifacts/
+.freqtrade-src/
+freqtrade-version.txt
+freqtrade-commit.txt
