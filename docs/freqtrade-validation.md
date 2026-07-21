@@ -96,3 +96,12 @@ and metadata. A weekly update uses eight days of temporary Kraken public trades 
 `--erase`; raw trades are deleted before caching. The validation workflow restores data only, checks
 manifest checksums and calculates an explicit 180-day evaluation range following a 480-candle
 warm-up. The known CCXT unclosed-connector warning is retained in logs as upstream behavior.
+
+## Catch-up, freshness, and PR scope
+
+The weekly update retains an eight-day trade overlap only when the prepared cache is already
+current. When it is older, it asks the pinned Freqtrade CLI for the missing range using its
+supported explicit `--timerange` form, retaining one day of overlap. The refreshed data must reach
+a recent closed 4-hour candle and contain no gap in the common BTC/EUR–ETH/EUR warm-up and
+evaluation window. Pull requests without a default-branch cache run static/importer validation
+only; that success is not a complete cache-backed Freqtrade validation.

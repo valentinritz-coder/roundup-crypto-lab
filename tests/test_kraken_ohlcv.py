@@ -6,7 +6,12 @@ from pathlib import Path
 
 import pytest
 
-from roundup_crypto_lab.kraken_ohlcv import ImportError, read_kraken_csv, source_files
+from roundup_crypto_lab.kraken_ohlcv import (
+    ImportError,
+    read_kraken_csv,
+    source_files,
+    update_request,
+)
 
 
 def row(timestamp: int, close: str = "2") -> str:
@@ -109,7 +114,7 @@ def test_manifest_regeneration_and_common_overlap(tmp_path: Path) -> None:
         freqtrade_version="2026.6",
         freqtrade_commit="commit",
     )
-    assert common_timerange(tmp_path).endswith(
+    assert common_timerange(tmp_path, now=base + timedelta(hours=4 * 1601 - 1)).endswith(
         (base + timedelta(hours=4 * 1601)).strftime("%Y%m%d")
     )
     old_checksum = manifest["datasets"][0]["output_file_sha256"]
@@ -125,3 +130,74 @@ def test_manifest_regeneration_and_common_overlap(tmp_path: Path) -> None:
     (tmp_path / "kraken-ohlcv-manifest.json").write_text(json.dumps(stale))
     with pytest.raises(ImportError, match="stale"):
         load_and_verify_manifest(tmp_path)
+
+
+def test_all_supported_csv_header_forms_and_headerless(tmp_path: Path) -> None:
+    for index, header in enumerate(
+        (
+            "time,open,high,low,close,vwap,volume,count\n",
+            "timestamp,open,high,low,close,vwap,volume,count\n",
+            "",
+        )
+    ):
+        path = tmp_path / f"{index}.csv"
+        path.write_text(header + row(0))
+        assert read_kraken_csv(path, datetime(1970, 1, 2, tzinfo=UTC))[0]
+
+
+def test_update_request_uses_weekly_or_deterministic_catchup(tmp_path: Path) -> None:
+    from roundup_crypto_lab.kraken_ohlcv import regenerate_manifest, write_feather
+
+    now = datetime(2026, 1, 20, tzinfo=UTC)
+    candles = [
+        (
+            now - timedelta(hours=4 * (n + 4)),
+            Decimal(1),
+            Decimal(3),
+            Decimal(1),
+            Decimal(2),
+            Decimal(4),
+        )
+        for n in range(1600)
+    ]
+    candles.reverse()
+    for pair in ("BTC/EUR", "ETH/EUR"):
+        write_feather(candles, tmp_path, pair)
+    regenerate_manifest(
+        tmp_path,
+        source_metadata={
+            "source_release_tag": "t",
+            "source_asset_name": "a",
+            "source_archive_sha256": "s",
+        },
+        repository_commit="r",
+        freqtrade_version="2026.6",
+        freqtrade_commit="c",
+    )
+    assert update_request(tmp_path, now=now) == "--days 8"
+    # A deliberately stale, otherwise valid cache uses Freqtrade's supported --timerange catch-up.
+    old = [
+        (
+            now - timedelta(days=40) + timedelta(hours=4 * n),
+            Decimal(1),
+            Decimal(3),
+            Decimal(1),
+            Decimal(2),
+            Decimal(4),
+        )
+        for n in range(100)
+    ]
+    for pair in ("BTC/EUR", "ETH/EUR"):
+        write_feather(old, tmp_path, pair)
+    regenerate_manifest(
+        tmp_path,
+        source_metadata={
+            "source_release_tag": "t",
+            "source_asset_name": "a",
+            "source_archive_sha256": "s",
+        },
+        repository_commit="r",
+        freqtrade_version="2026.6",
+        freqtrade_commit="c",
+    )
+    assert update_request(tmp_path, now=now).startswith("--timerange ")

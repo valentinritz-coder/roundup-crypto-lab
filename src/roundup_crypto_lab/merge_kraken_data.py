@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import math
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -40,8 +41,27 @@ def merge(
             if list(frame.columns) != FREQTRADE_COLUMNS:
                 raise ImportError(f"invalid {label} Feather schema")
             frame["date"] = pd.to_datetime(frame["date"], utc=True)
-            if frame.date.duplicated().any():
-                raise ImportError(f"duplicate {label} timestamps")
+            if (
+                frame.empty
+                or frame.date.duplicated().any()
+                or not frame.date.is_monotonic_increasing
+            ):
+                raise ImportError(f"invalid {label} timestamps")
+            if any(frame.date.dt.minute) or any(frame.date.dt.hour % 4):
+                raise ImportError(f"unaligned {label} timestamps")
+            values = frame[FREQTRADE_COLUMNS[1:]]
+            if not values.apply(
+                lambda column: pd.to_numeric(column, errors="coerce").notna().all()
+            ).all():
+                raise ImportError(f"non-numeric {label} candles")
+            if not values.apply(lambda column: column.map(float).map(math.isfinite).all()).all():
+                raise ImportError(f"non-finite {label} candles")
+            if (
+                (frame["volume"] < 0).any()
+                or (frame["high"] < frame[["open", "close", "low"]].max(axis=1)).any()
+                or (frame["low"] > frame[["open", "close", "high"]].min(axis=1)).any()
+            ):
+                raise ImportError(f"invalid {label} OHLCV values")
         merged = pd.concat([old, recent]).sort_values("date").drop_duplicates("date", keep="last")
         merged = merged[merged.date < cutoff].reset_index(drop=True)
         if not set(old.date).issubset(set(merged.date)) or merged.date.iloc[0] != old.date.iloc[0]:

@@ -118,8 +118,8 @@ def read_kraken_csv(path: Path, now: datetime | None = None) -> tuple[list, list
             raise ImportError(f"empty CSV: {path.name}")
         header = [item.strip().lower() for item in first]
         if header[0] in {"time", "timestamp"}:
-            expected = ["time", "open", "high", "low", "close", "vwap", "volume", "count"]
-            if header != expected:
+            expected = ["open", "high", "low", "close", "vwap", "volume", "count"]
+            if header[1:] != expected:
                 raise ImportError(f"unexpected Kraken OHLCVT header in {path.name}")
             data_rows = reader
         else:
@@ -323,15 +323,45 @@ def load_and_verify_manifest(destination: Path) -> dict:
     except (OSError, json.JSONDecodeError) as exc:
         raise ImportError("missing or invalid dataset manifest") from exc
     actual = dataset_entries(destination)
-    if manifest.get("datasets") != actual:
+    # Duplicate-removal provenance exists only at import time; all persistent fields must match.
+    def comparable(entries: list[dict]) -> list[dict]:
+        return [
+            {key: value for key, value in entry.items() if key != "duplicate_rows_removed"}
+            for entry in entries
+        ]
+    if comparable(manifest.get("datasets", [])) != comparable(actual):
         raise ImportError("dataset manifest is stale or does not match Feather data")
     return manifest
 
 
-def common_timerange(destination: Path) -> str:
+def common_timerange(destination: Path, now: datetime | None = None) -> str:
     entries = load_and_verify_manifest(destination)["datasets"]
     start = max(datetime.fromisoformat(item["first_timestamp"]) for item in entries)
     end = min(datetime.fromisoformat(item["last_timestamp"]) for item in entries)
-    if end - start < INTERVAL * 480 + timedelta(days=180):
+    required_start = end - INTERVAL * 480 - timedelta(days=180)
+    if required_start < start:
         raise ImportError("insufficient common history after 480-candle warm-up")
+    latest_closed = (now or datetime.now(UTC)).replace(minute=0, second=0, microsecond=0)
+    latest_closed -= timedelta(hours=latest_closed.hour % 4)
+    if end < latest_closed - INTERVAL:
+        raise ImportError("common dataset end is not a recent closed 4h candle")
+    for entry in entries:
+        for gap in entry["missing_intervals"]:
+            gap_start, gap_end = (datetime.fromisoformat(value) for value in gap.split(".."))
+            if gap_end > required_start and gap_start < end:
+                raise ImportError("missing 4h interval intersects required validation history")
     return f"{(end - timedelta(days=180)).strftime('%Y%m%d')}-{end.strftime('%Y%m%d')}"
+
+
+def update_request(destination: Path, now: datetime | None = None) -> str:
+    """Return the supported Freqtrade download option for weekly update or initial catch-up."""
+    now = now or datetime.now(UTC)
+    closed = now.replace(minute=0, second=0, microsecond=0) - timedelta(hours=now.hour % 4)
+    end = min(
+        datetime.fromisoformat(item["last_timestamp"])
+        for item in load_and_verify_manifest(destination)["datasets"]
+    )
+    if closed - end <= timedelta(days=8):
+        return "--days 8"
+    # Freqtrade 2026.6 download-data supports --timerange (mutually exclusive with --days).
+    return f"--timerange {(end - timedelta(days=1)).strftime('%Y%m%d')}-{closed.strftime('%Y%m%d')}"
