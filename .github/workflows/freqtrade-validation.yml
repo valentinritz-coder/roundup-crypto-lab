@@ -37,7 +37,10 @@ jobs:
         run: |
           git clone --depth 1 --branch "$FREQTRADE_VERSION" https://github.com/freqtrade/freqtrade.git .freqtrade-src
           test "$(git -C .freqtrade-src rev-parse HEAD)" = "$FREQTRADE_COMMIT"
-          python -m pip install -r .freqtrade-src/requirements.txt && python -m pip install --no-deps -e .freqtrade-src
+          python -m pip install -r .freqtrade-src/requirements.txt
+          python -m pip install --no-deps -e .freqtrade-src
+          python -m pip install --no-deps -e .freqtrade-src/ft_client
+          python -m pip check
       - name: Verify data and calculate common-overlap timerange
         if: steps.restore.outputs.cache-hit != ''
         run: |

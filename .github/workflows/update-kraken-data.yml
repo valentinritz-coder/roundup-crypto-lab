@@ -24,13 +24,18 @@ jobs:
           python -m pip install -e '.[dev]'
           git clone --depth 1 --branch "$FREQTRADE_VERSION" https://github.com/freqtrade/freqtrade.git .freqtrade-src
           test "$(git -C .freqtrade-src rev-parse HEAD)" = "$FREQTRADE_COMMIT"
-          python -m pip install -r .freqtrade-src/requirements.txt && python -m pip install --no-deps -e .freqtrade-src
+          python -m pip install -r .freqtrade-src/requirements.txt
+          python -m pip install --no-deps -e .freqtrade-src
+          python -m pip install --no-deps -e .freqtrade-src/ft_client
+          python -m pip check
       - name: Catch up missing history or download weekly overlap
         run: |
           mkdir -p artifacts/logs tmp-kraken-trades
           # Normal maintenance request is --days 8; older caches use deterministic --timerange catch-up.
           REQUEST=$(python -c 'from pathlib import Path; from roundup_crypto_lab.kraken_ohlcv import update_request; print(update_request(Path("user_data/data/kraken")))')
-          echo "download request: $REQUEST" | tee artifacts/update-request.txt
+          python -c 'from pathlib import Path; from roundup_crypto_lab.kraken_ohlcv import report_gaps; report_gaps(Path("user_data/data/kraken"))' | tee artifacts/gaps-before-update.txt
+          echo "selected Update download start / Freqtrade option: $REQUEST" | tee -a artifacts/update-request.txt
+          echo "download request: $REQUEST" | tee -a artifacts/update-request.txt
           freqtrade download-data --config user_data/config.json --datadir tmp-kraken-trades --pairs BTC/EUR ETH/EUR $REQUEST --timeframes 4h --dl-trades |& tee artifacts/logs/download.txt
           # Project merge code must preserve seeded history; Freqtrade never writes user_data/data/kraken here.
           python -m roundup_crypto_lab.merge_kraken_data user_data/data/kraken tmp-kraken-trades --repository-commit "$GITHUB_SHA" --freqtrade-version "$FREQTRADE_VERSION" --freqtrade-commit "$FREQTRADE_COMMIT" |& tee artifacts/logs/merge.txt
