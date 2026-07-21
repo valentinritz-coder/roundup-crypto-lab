@@ -3,6 +3,7 @@ import pathlib
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 CONFIG = ROOT / "user_data" / "config.json"
+WORKFLOW = ROOT / ".github" / "workflows" / "freqtrade-validation.yml"
 
 
 def load_config() -> dict:
@@ -38,3 +39,10 @@ def test_strategy_is_explicitly_long_only() -> None:
     assert "can_short = False" in strategy
     assert 'timeframe = "4h"' in strategy
     assert ".rolling(20).max().shift(1)" in strategy
+
+
+def test_kraken_history_download_uses_public_trades() -> None:
+    workflow = WORKFLOW.read_text(encoding="utf-8")
+
+    assert "--dl-trades" in workflow
+    assert "data_source=public_trades_converted_to_ohlcv" in workflow
