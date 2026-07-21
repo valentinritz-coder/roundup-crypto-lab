@@ -17,7 +17,7 @@ also fails its step rather than being hidden by `tee`.
 freqtrade list-strategies --config user_data/config.json
 freqtrade show-config --config user_data/config.json
 freqtrade download-data --config user_data/config.json \
-  --pairs BTC/EUR ETH/EUR --days 120 --timeframes 4h
+  --pairs BTC/EUR ETH/EUR --days 120 --timeframes 4h --dl-trades
 freqtrade list-data --config user_data/config.json --timeframes 4h
 freqtrade backtesting --config user_data/config.json \
   --strategy RoundupBreakoutStrategy --timeframe 4h \
@@ -31,10 +31,16 @@ freqtrade recursive-analysis --config user_data/config.json \
   --startup-candle 120 240 480
 ```
 
-The date window is deliberately requested as the latest 120 days, not a claim of multi-year
-history: Kraken's public OHLC endpoint serves a limited recent-candle window. `list-data.txt` is
-the authoritative per-run record of the actual first and last candles downloaded; market data may
-change between runs. The reproducibility manifest also records each data-file path and size.
+Kraken does not expose backtest-grade historic OHLCV through Freqtrade. Its direct candle endpoint
+is sufficient for dry-run and live operation but not for the historical downloader. The workflow
+therefore requests public trades with `--dl-trades`; Freqtrade 2026.6 then automatically converts
+them into the requested 4-hour candles because Kraken is marked as lacking historical OHLCV.
+Downloading trades is slower and more memory-intensive than downloading candles, so the workflow
+allows up to 90 minutes and deliberately limits the default window to the latest 120 days.
+
+`list-data.txt` is the authoritative per-run record of the actual first and last candles produced;
+market data may change between runs. The reproducibility manifest records the data source, the
+trade-download mode, and each generated data-file path and size.
 
 ## Baseline and result interpretation
 
@@ -46,11 +52,16 @@ smoke test. Its artifact is retained for 30 days.
 
 That baseline is not evidence of a profitable strategy, a stable long-horizon result, or a bias
 verdict: the old shell pipelines did not enable `pipefail`, and the prior smoke test accepted an
-early exit. This revision fixes both issues. A successful run of this revision is required before
-using its backtest, look-ahead, or recursive-analysis reports as evidence. In particular,
-`lookahead-analysis.txt` must report no biased entry or exit columns and
-`recursive-analysis.txt` must explain no instability across the 120, 240, and 480 startup-candle
-checks.
+early exit. The first strict run,
+[29847057217](https://github.com/valentinritz-coder/roundup-crypto-lab/actions/runs/29847057217),
+correctly failed when the workflow attempted historical Kraken OHLCV without `--dl-trades`. This
+failure exposed a real exchange-specific requirement instead of being hidden by the former shell
+pipeline.
+
+A successful run with the trade-download revision is required before using its backtest,
+look-ahead, or recursive-analysis reports as evidence. In particular, `lookahead-analysis.txt`
+must report no biased entry or exit columns and `recursive-analysis.txt` must explain no
+instability across the 120, 240, and 480 startup-candle checks.
 
 ## ATR stop and dry-run smoke test
 
