@@ -18,7 +18,7 @@ def test_freqtrade_configuration_is_dry_spot_and_single_position() -> None:
     assert config["max_open_trades"] == 1
     assert config["stake_currency"] == "EUR"
     assert config["timeframe"] == "4h"
-    assert config["strategy_path"] == "user_data/strategies"
+    assert len(config["api_server"]["jwt_secret_key"]) >= 32
 
 
 def test_initial_pair_scope_and_credentials_are_restricted() -> None:

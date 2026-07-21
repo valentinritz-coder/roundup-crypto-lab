@@ -6,7 +6,7 @@ on:
       days:
         description: Number of public candle-history days to download
         required: false
-        default: "2200"
+        default: "120"
   pull_request:
     paths:
       - "user_data/config.json"
@@ -31,13 +31,20 @@ concurrency:
 
 env:
   PYTHONUNBUFFERED: "1"
-  FREQTRADE_REF: stable
-  DAYS: ${{ inputs.days || '2200' }}
+  # Tag and commit are both checked: the tag documents the reviewed release and
+  # the commit makes a retargeted tag unable to change this laboratory run.
+  FREQTRADE_VERSION: "2026.6"
+  FREQTRADE_COMMIT: "b604e2fd70539f7f73d3c62c16ce0b155bbab319"
+  # Kraken's public OHLC endpoint is limited to its recent candle window.
+  DAYS: ${{ inputs.days || '120' }}
 
 jobs:
   validate:
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    defaults:
+      run:
+        shell: bash -eo pipefail {0}
 
     steps:
       - name: Checkout laboratory
@@ -62,11 +69,12 @@ jobs:
           ruff check .
           pytest
 
-      - name: Install Freqtrade from its stable branch
+      - name: Install the pinned Freqtrade release
         run: |
-          git clone --depth 1 --branch "$FREQTRADE_REF" https://github.com/freqtrade/freqtrade.git .freqtrade-src
+          git clone --depth 1 --branch "$FREQTRADE_VERSION" https://github.com/freqtrade/freqtrade.git .freqtrade-src
+          test "$(git -C .freqtrade-src rev-parse HEAD)" = "$FREQTRADE_COMMIT"
           python -m pip install -r .freqtrade-src/requirements.txt
-          python -m pip install -e .freqtrade-src
+          python -m pip install --no-deps -e .freqtrade-src
           freqtrade --version | tee freqtrade-version.txt
           git -C .freqtrade-src rev-parse HEAD | tee freqtrade-commit.txt
 
@@ -74,11 +82,10 @@ jobs:
         run: |
           freqtrade list-strategies \
             --config user_data/config.json \
-            --strategy-path user_data/strategies \
-            | tee artifacts/logs/list-strategies.txt
+            2>&1 | tee artifacts/logs/list-strategies.txt
           freqtrade show-config \
             --config user_data/config.json \
-            | tee artifacts/logs/show-config.txt
+            2>&1 | tee artifacts/logs/show-config.txt
 
       - name: Download public Kraken candles
         run: |
@@ -87,47 +94,49 @@ jobs:
             --pairs BTC/EUR ETH/EUR \
             --days "$DAYS" \
             --timeframes 4h \
-            | tee artifacts/logs/download-data.txt
+            2>&1 | tee artifacts/logs/download-data.txt
+          freqtrade list-data \
+            --config user_data/config.json \
+            --timeframes 4h \
+            2>&1 | tee artifacts/logs/list-data.txt
 
       - name: Backtest
         run: |
           freqtrade backtesting \
             --config user_data/config.json \
             --strategy RoundupBreakoutStrategy \
-            --strategy-path user_data/strategies \
             --timeframe 4h \
             --export trades \
             --export-filename artifacts/results/backtest.json \
-            | tee artifacts/logs/backtest.txt
+            2>&1 | tee artifacts/logs/backtest.txt
 
       - name: Look-ahead analysis
         run: |
           freqtrade lookahead-analysis \
             --config user_data/config.json \
             --strategy RoundupBreakoutStrategy \
-            --strategy-path user_data/strategies \
             --timeframe 4h \
             --minimum-trade-amount 1 \
             --targeted-trade-amount 10 \
-            | tee artifacts/logs/lookahead-analysis.txt
+            --lookahead-analysis-exportfilename artifacts/results/lookahead-analysis.csv \
+            2>&1 | tee artifacts/logs/lookahead-analysis.txt
 
       - name: Recursive analysis
         run: |
           freqtrade recursive-analysis \
             --config user_data/config.json \
             --strategy RoundupBreakoutStrategy \
-            --strategy-path user_data/strategies \
             --timeframe 4h \
-            | tee artifacts/logs/recursive-analysis.txt
+            --startup-candle 120 240 480 \
+            2>&1 | tee artifacts/logs/recursive-analysis.txt
 
       - name: Dry-run startup smoke test
         shell: bash
         run: |
           set +e
-          timeout --signal=INT 90s freqtrade trade \
+          timeout --signal=INT --kill-after=15s 90s freqtrade trade \
             --config user_data/config.json \
             --strategy RoundupBreakoutStrategy \
-            --strategy-path user_data/strategies \
             --db-url sqlite:///artifacts/results/dry-run-smoke.sqlite \
             > artifacts/logs/dry-run-smoke.txt 2>&1
           code=$?
@@ -135,6 +144,11 @@ jobs:
           if [ "$code" -ne 0 ] && [ "$code" -ne 124 ] && [ "$code" -ne 130 ]; then
             cat artifacts/logs/dry-run-smoke.txt
             exit "$code"
+          fi
+          if [ "$code" -eq 0 ] || ! grep -Eq "Changing state.*RUNNING" artifacts/logs/dry-run-smoke.txt; then
+            cat artifacts/logs/dry-run-smoke.txt
+            echo "Dry-run smoke test did not reach normal RUNNING operation before stopping."
+            exit 1
           fi
           cat artifacts/logs/dry-run-smoke.txt
 
@@ -144,13 +158,16 @@ jobs:
           mkdir -p artifacts
           {
             echo "repository_sha=${GITHUB_SHA}"
-            echo "freqtrade_ref=${FREQTRADE_REF}"
+            echo "freqtrade_version=${FREQTRADE_VERSION}"
+            echo "freqtrade_expected_commit=${FREQTRADE_COMMIT}"
             echo "freqtrade_commit=$(cat freqtrade-commit.txt 2>/dev/null || true)"
             echo "history_days=${DAYS}"
             echo "exchange=kraken"
             echo "pairs=BTC/EUR,ETH/EUR"
             echo "timeframe=4h"
             echo "dry_run=true"
+            echo "data_files:"
+            find user_data/data -type f -printf '%p %s bytes\n' 2>/dev/null | sort
           } > artifacts/reproducibility.txt
           cp freqtrade-version.txt artifacts/ 2>/dev/null || true
           cp freqtrade-commit.txt artifacts/ 2>/dev/null || true
