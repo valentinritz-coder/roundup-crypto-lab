@@ -2,7 +2,6 @@
   "$schema": "https://schema.freqtrade.io/schema.json",
   "bot_name": "roundup-crypto-lab",
   "strategy": "RoundupBreakoutStrategy",
-  "strategy_path": "user_data/strategies",
   "max_open_trades": 1,
   "stake_currency": "EUR",
   "stake_amount": "unlimited",
@@ -86,7 +85,7 @@
     "listen_port": 8080,
     "verbosity": "error",
     "enable_openapi": false,
-    "jwt_secret_key": "replace-only-if-api-is-enabled",
+    "jwt_secret_key": "api-server-disabled-use-a-32-character-placeholder",
     "CORS_origins": [],
     "username": "disabled",
     "password": "disabled"

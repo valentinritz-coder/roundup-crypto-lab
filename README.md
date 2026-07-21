@@ -51,6 +51,10 @@ Every Freqtrade run uploads an artifact containing:
 GitHub Actions runners are temporary. The smoke test verifies startup only; it is not a
 continuous paper-trading host.
 
+The validated release, exact command lines, artifact contents, baseline run, and the limits of
+the public Kraken history are documented in
+[`docs/freqtrade-validation.md`](docs/freqtrade-validation.md).
+
 ## Repository layout
 
 ```text
