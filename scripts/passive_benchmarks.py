@@ -125,7 +125,7 @@ def _build_result(
             purchase = by_index[index]
             open_value = running_quantity * Decimal(str(candle["open"]))
             share_value = Decimal("1") if shares == 0 else open_value / shares
-            shares += purchase["gross_contribution"] / share_value
+            shares += purchase["net_contribution"] / share_value
             contribution_total += purchase["gross_contribution"]
             running_quantity += purchase["quantity"]
         portfolio = running_quantity * Decimal(str(candle["close"]))
@@ -141,6 +141,8 @@ def _build_result(
             }
         )
     average = invested / quantity if quantity else None
+    raw_drawdown = _drawdown([row["portfolio_value"] for row in equity])
+    time_weighted_drawdown = _drawdown([row["time_weighted_share_value"] for row in equity])
     result = {
         "benchmark": benchmark,
         "category": "benchmark",
@@ -155,13 +157,11 @@ def _build_result(
         "final_value": _number(final_value),
         "profit_total_abs": _number(final_value - invested),
         "profit_total": _number((final_value - invested) / invested),
-        "max_drawdown": _number(_drawdown([row["portfolio_value"] for row in equity])),
-        "max_drawdown_raw_portfolio": _number(
-            _drawdown([row["portfolio_value"] for row in equity])
+        "max_drawdown": _number(
+            raw_drawdown if benchmark == "BuyAndHold" else time_weighted_drawdown
         ),
-        "max_drawdown_time_weighted": _number(
-            _drawdown([row["time_weighted_share_value"] for row in equity])
-        ),
+        "max_drawdown_raw_portfolio": _number(raw_drawdown),
+        "max_drawdown_time_weighted": _number(time_weighted_drawdown),
         "profit_factor": None,
         "expectancy": None,
         "winrate": None,
@@ -195,6 +195,7 @@ def buy_and_hold(
         "execution_price": price,
         "gross_contribution": initial_capital,
         "fee_paid": initial_capital * fee,
+        "net_contribution": initial_capital * (Decimal("1") - fee),
         "quantity": initial_capital * (Decimal("1") - fee) / price,
         "candle_index": 0,
     }
@@ -228,6 +229,7 @@ def dca(
                         "execution_price": price,
                         "gross_contribution": contribution,
                         "fee_paid": contribution * fee,
+                        "net_contribution": contribution * (Decimal("1") - fee),
                         "quantity": contribution * (Decimal("1") - fee) / price,
                         "candle_index": index,
                     }

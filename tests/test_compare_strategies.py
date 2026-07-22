@@ -64,6 +64,47 @@ def test_comparison_rejects_missing_and_non_numeric_results(tmp_path: Path) -> N
         create_comparison(inputs)
 
 
+def passive_benchmark(**overrides: object) -> dict[str, object]:
+    result: dict[str, object] = {
+        "benchmark": "DailyDCA",
+        "pair": "BTC/EUR",
+        "number_of_buys": 2,
+        "profit_total": 0.1,
+        "profit_total_abs": 2.0,
+        "max_drawdown_time_weighted": 0.2,
+    }
+    result.update(overrides)
+    return result
+
+
+@pytest.mark.parametrize(
+    ("overrides", "message"),
+    [
+        ({"profit_total": float("nan")}, "profit_total"),
+        ({"profit_total_abs": float("inf")}, "profit_total_abs"),
+        ({"number_of_buys": True}, "number_of_buys"),
+        ({"benchmark": ""}, "name"),
+        ({"pair": 4}, "pair"),
+        ({"max_drawdown_time_weighted": 1.1}, "drawdown"),
+    ],
+)
+def test_comparison_rejects_invalid_passive_benchmark_fields(
+    tmp_path: Path, overrides: dict[str, object], message: str
+) -> None:
+    path = tmp_path / "benchmarks.json"
+    path.write_text(json.dumps({"benchmarks": [passive_benchmark(**overrides)]}))
+    with pytest.raises(ValueError, match=message):
+        create_comparison(valid_inputs(tmp_path), benchmark_path=path)
+
+
+def test_comparison_rejects_duplicate_passive_benchmark_pair(tmp_path: Path) -> None:
+    path = tmp_path / "benchmarks.json"
+    row = passive_benchmark()
+    path.write_text(json.dumps({"benchmarks": [row, row]}))
+    with pytest.raises(ValueError, match="duplicate"):
+        create_comparison(valid_inputs(tmp_path), benchmark_path=path)
+
+
 def test_timerange_validation_is_strict() -> None:
     assert parse_timerange("20260123-20260722")
     for timerange in (

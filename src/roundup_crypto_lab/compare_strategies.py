@@ -60,7 +60,7 @@ def create_comparison(
             f"Comparison strategies differ; missing={sorted(missing)}, extra={sorted(extra)}"
         )
 
-    rows: list[dict[str, int | float | str]] = []
+    rows: list[dict[str, int | float | str | None]] = []
     seen: set[str] = set()
     for requested_name, path in results.items():
         strategy_result = _read_result(path).get("strategy", {}).get(requested_name)
@@ -91,21 +91,47 @@ def create_comparison(
             raise ValueError(f"invalid passive benchmark JSON: {benchmark_path}") from exc
         if not isinstance(benchmarks, list):
             raise ValueError("passive benchmark JSON must contain a benchmarks list")
+        seen_benchmarks: set[tuple[str, str]] = set()
         for benchmark in benchmarks:
             if not isinstance(benchmark, dict):
                 raise ValueError("passive benchmark entry must be an object")
             for key in ("benchmark", "pair", "number_of_buys", "profit_total", "profit_total_abs"):
                 if key not in benchmark:
                     raise ValueError(f"passive benchmark missing {key}")
+            name, pair = benchmark["benchmark"], benchmark["pair"]
+            if not isinstance(name, str) or not name:
+                raise ValueError("passive benchmark name must be a non-empty string")
+            if not isinstance(pair, str) or not pair:
+                raise ValueError("passive benchmark pair must be a non-empty string")
+            buys = benchmark["number_of_buys"]
+            if isinstance(buys, bool) or not isinstance(buys, int) or buys < 0:
+                raise ValueError("passive benchmark number_of_buys must be a non-negative integer")
+            for key in ("profit_total", "profit_total_abs"):
+                value = benchmark[key]
+                if (
+                    isinstance(value, bool)
+                    or not isinstance(value, (int, float))
+                    or not math.isfinite(value)
+                ):
+                    raise ValueError(f"passive benchmark has invalid {key}")
             drawdown = benchmark.get("max_drawdown_time_weighted", benchmark.get("max_drawdown"))
-            if not isinstance(drawdown, (int, float)) or not math.isfinite(drawdown):
+            if (
+                isinstance(drawdown, bool)
+                or not isinstance(drawdown, (int, float))
+                or not math.isfinite(drawdown)
+                or not 0 <= drawdown <= 1
+            ):
                 raise ValueError("passive benchmark has invalid drawdown")
+            identity = (name, pair)
+            if identity in seen_benchmarks:
+                raise ValueError(f"duplicate passive benchmark: {name} / {pair}")
+            seen_benchmarks.add(identity)
             rows.append(
                 {
-                    "strategy": benchmark["benchmark"],
+                    "strategy": name,
                     "category": "benchmark",
-                    "pair": benchmark["pair"],
-                    "trades": benchmark["number_of_buys"],
+                    "pair": pair,
+                    "trades": buys,
                     "profit_total": benchmark["profit_total"],
                     "profit_total_abs": benchmark["profit_total_abs"],
                     "max_drawdown_account": drawdown,

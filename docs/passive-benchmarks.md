@@ -34,7 +34,8 @@ the benchmarks never liquidate.
 `profit_total = (final_portfolio_value - total_contributions) / total_contributions`. DCA also
 records `portfolio_value`, `net_value` (portfolio minus cumulative contributions), and a
 contribution-neutral time-weighted share value. Before each contribution, new shares are issued
-at the current open-marked share value; drawdown of this share value is reported as
+for the net (post-fee) contribution at the current open-marked share value; drawdown of this share
+value is reported as
 `max_drawdown_time_weighted`. The raw portfolio drawdown is retained separately but is not the
 headline DCA drawdown because deposits can distort it.
 

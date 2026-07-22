@@ -48,6 +48,23 @@ def test_daily_dca_defers_to_first_available_candle_and_has_one_buy_per_day() ->
     assert result["final_value"] == 270.0
     assert result["profit_total"] == 0.35
     assert result["max_drawdown_time_weighted"] == 0.0
+    assert result["max_drawdown"] == result["max_drawdown_time_weighted"]
+
+
+def test_dca_fee_uses_net_contribution_for_time_weighted_shares_on_flat_market() -> None:
+    frame = candles(
+        [
+            (datetime(2026, 1, 1, tzinfo=UTC), 100, 100, 100, 100, 0),
+            (datetime(2026, 1, 2, tzinfo=UTC), 100, 100, 100, 100, 0),
+        ]
+    )
+    result = dca(frame, "BTC/EUR", Decimal("100"), Decimal("0.1"))
+    assert [purchase["net_contribution"] for purchase in result["purchases"]] == [90.0, 90.0]
+    assert [row["time_weighted_share_value"] for row in result["equity_curve"]] == [1.0, 1.0]
+    assert result["max_drawdown_time_weighted"] == 0.0
+    assert result["max_drawdown"] == 0.0
+    assert result["max_drawdown_raw_portfolio"] == 0.0
+    assert result["profit_total"] == -0.1
 
 
 def test_weekly_dca_only_buys_requested_weekday_across_year_boundary() -> None:
