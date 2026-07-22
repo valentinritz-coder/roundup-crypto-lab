@@ -191,30 +191,47 @@ def _assert_accounting_invariants(
     fees: Decimal,
     final_price: Decimal,
     final_value: Decimal,
+    expected_contributions: Decimal,
 ) -> None:
-    """Fail closed if the long-only Decimal accounting identity is violated."""
+    """Independently recompute long-only ledger totals and fail closed on mismatch."""
     values = (quantity, cash, contributions, invested, fees, final_price, final_value)
     if any(not value.is_finite() or value < 0 for value in values):
         raise ValueError("passive accounting produced a non-finite or negative balance")
-    previous_quantity = Decimal("0")
+
+    running_quantity = running_fees = running_invested = Decimal("0")
     for purchase in purchases:
-        gross, fee, net, acquired = (
-            purchase["gross_contribution"],
-            purchase["fee_paid"],
-            purchase["net_contribution"],
-            purchase["quantity"],
-        )
-        if gross != fee + net or acquired != net / purchase["execution_price"]:
+        gross = purchase["gross_contribution"]
+        fee = purchase["fee_paid"]
+        net = purchase["net_contribution"]
+        execution_price = purchase["execution_price"]
+        acquired = purchase["quantity"]
+        if gross != fee + net or acquired != net / execution_price:
             raise ValueError("purchase ledger accounting invariant failed")
-        if purchase["cumulative_quantity"] < previous_quantity:
-            raise ValueError("passive long-only quantity decreased")
-        previous_quantity = purchase["cumulative_quantity"]
-    tolerance = Decimal("1e-24")
-    if (
-        abs(contributions - invested - cash) > tolerance
-        or abs(final_value - cash - quantity * final_price) > tolerance
+        running_quantity += acquired
+        running_fees += fee
+        running_invested += gross
+        if purchase["cumulative_quantity"] != running_quantity:
+            raise ValueError("purchase ledger cumulative quantity invariant failed")
+        if purchase["cumulative_fees"] != running_fees:
+            raise ValueError("purchase ledger cumulative fee invariant failed")
+
+    if quantity != running_quantity or quantity != sum(
+        (purchase["net_contribution"] / purchase["execution_price"] for purchase in purchases),
+        Decimal("0"),
     ):
-        raise ValueError("portfolio accounting invariant failed")
+        raise ValueError("final quantity does not equal independently recomputed ledger quantity")
+    if invested != running_invested or fees != running_fees:
+        raise ValueError("final invested capital or fees do not equal ledger totals")
+    if purchases and purchases[-1]["cumulative_quantity"] != quantity:
+        raise ValueError("final ledger cumulative quantity does not equal final quantity")
+    if contributions != expected_contributions:
+        raise ValueError("gross investor contributions do not equal the investment plan")
+    # Decimal divisions used to split DCA buckets can retain a sub-atto residue;
+    # this is normalized to cash zero at execution and is the sole tolerance here.
+    if abs(contributions - invested - cash) > Decimal("1e-24"):
+        raise ValueError("portfolio cash accounting invariant failed")
+    if final_value != cash + quantity * final_price:
+        raise ValueError("final portfolio valuation invariant failed")
 
 
 def _build_result(
@@ -300,6 +317,7 @@ def _build_result(
         fees=fees,
         final_price=final_price,
         final_value=final_value,
+        expected_contributions=total_contributions,
     )
     raw_drawdown = _drawdown([row["portfolio_value"] for row in equity])
     time_weighted_drawdown = _drawdown([row["time_weighted_share_value"] for row in equity])

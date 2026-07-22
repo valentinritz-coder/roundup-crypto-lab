@@ -59,14 +59,17 @@ unit value `U`. Before each contribution at a candle open, issue `contribution /
 units, where `Uopen = portfolio_open / units_outstanding` (and `Uopen = 1` for the first
 contribution). Purchases issue no units. After the close, `Uclose = Vclose / units_outstanding`.
 This removes investor cash-flow effects: a contribution cannot create a positive return or
-make an existing drawdown better merely by arriving.
+make an existing drawdown better merely by arriving. The first candle-close valuation after the
+first execution is the first observed peak. Therefore an initial purchase fee does **not** itself
+create time-weighted drawdown; a later fee or price decline below that observed value does. This
+convention applies equally to immediate, daily, and weekly deployment.
 
 ## Purchase-ledger artifacts
 
 Every benchmark JSON contains `purchase_ledger`; its Decimal fields are strings, preserving
 exact values for independent recomputation. `average_entry_price_exact` likewise preserves the
-exact derived cost basis alongside the legacy numeric summary value. When `--output-dir` is supplied, every benchmark
-also writes `<benchmark>-<pair>-purchase-ledger.csv` (with headers even if there were no
+exact derived cost basis alongside the legacy numeric summary value. CSV artifacts are generated
+only when `--output-dir` is supplied; then every benchmark also writes `<benchmark>-<pair>-purchase-ledger.csv` (with headers even if there were no
 eligible buys). Each record includes contribution, scheduled, and execution timestamps;
 execution price; gross, fee, and net amounts; acquired and cumulative quantity; cumulative
 gross contributions and fees; residual cash; and close-marked portfolio value. The legacy
