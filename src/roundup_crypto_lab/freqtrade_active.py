@@ -254,6 +254,8 @@ def run_freqtrade_strategy(
 def _json(value: object) -> object:
     if isinstance(value, Decimal):
         return str(value)
+    if isinstance(value, datetime):
+        return value.isoformat()
     raise TypeError(f"cannot serialize {type(value).__name__}")
 
 
