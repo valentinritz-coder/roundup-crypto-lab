@@ -1,40 +1,59 @@
-"""Versioned recurring-investor result artifacts and controlled comparison reporting."""
+"""Versioned, validated active-cash-flow artifacts; intentionally separate from native metrics."""
 
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 from datetime import UTC, datetime
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
-from typing import Any
 
 from roundup_crypto_lab.all_strategy_comparison import STRATEGY_ORDER, validate_comparison
-from roundup_crypto_lab.all_strategy_comparison import summary as native_summary
 from roundup_crypto_lab.passive_benchmarks import parse_timerange
 
 SCHEMA_VERSION = "active-strategy-result/v1"
-SUPPORTED_EXIT_REASONS = frozenset({"exit_signal", "stop_loss"})
+EXITS = frozenset({"exit_signal", "stop_loss"})
 
 
-def _decimal(value: object, field: str) -> Decimal:
+def dec(x: object, n: str) -> Decimal:
     try:
-        number = Decimal(str(value))
-    except (InvalidOperation, ValueError) as error:
-        raise ValueError(f"{field} must be a decimal") from error
-    if not number.is_finite():
-        raise ValueError(f"{field} must be finite")
-    return number
+        v = Decimal(str(x))
+    except (InvalidOperation, ValueError) as e:
+        raise ValueError(f"{n} must be decimal") from e
+    if not v.is_finite():
+        raise ValueError(f"{n} must be finite")
+    return v
 
 
-def _time(value: object, field: str) -> datetime:
+def ts(x: object, n: str) -> datetime:
     try:
-        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
-    except ValueError as error:
-        raise ValueError(f"{field} must be an ISO timestamp") from error
-    if parsed.tzinfo is None:
-        raise ValueError(f"{field} must be timezone-aware")
-    return parsed.astimezone(UTC)
+        v = datetime.fromisoformat(str(x).replace("Z", "+00:00"))
+    except ValueError as e:
+        raise ValueError(f"{n} must be ISO timestamp") from e
+    if v.tzinfo is None:
+        raise ValueError(f"{n} must be timezone-aware")
+    return v.astimezone(UTC)
+
+
+def identity(e: dict[str, object]) -> str:
+    keys = (
+        "selected_pair",
+        "timeframe",
+        "timerange",
+        "start",
+        "end",
+        "capital_mode",
+        "investment_plan",
+        "effective_settings",
+        "execution_model",
+        "execution_scope",
+    )
+    return hashlib.sha256(
+        json.dumps(
+            {k: e.get(k) for k in keys}, sort_keys=True, separators=(",", ":"), default=str
+        ).encode()
+    ).hexdigest()
 
 
 def build_active_result(
@@ -47,34 +66,40 @@ def build_active_result(
     execution_model: str,
     effective_settings: dict[str, object],
 ) -> dict[str, object]:
-    """Wrap adapter output in the stable, deliberately non-native result family."""
     start, end = parse_timerange(timerange)
-    trades = result["trades"]
-    assert isinstance(trades, list)
+    trades = result.get("trades")
+    curve = result.get("equity_curve")
+    if (
+        not isinstance(trades, list)
+        or not isinstance(curve, list)
+        or not curve
+        or not isinstance(curve[-1], dict)
+    ):
+        raise ValueError("adapter result lacks ledger")
     exits: dict[str, int] = {}
-    for trade in trades:
-        assert isinstance(trade, dict)
-        reason = trade.get("exit_reason")
-        if reason:
-            exits[str(reason)] = exits.get(str(reason), 0) + 1
-    curve = result["equity_curve"]
-    assert isinstance(curve, list) and curve
+    for t in trades:
+        if not isinstance(t, dict):
+            raise ValueError("trade must be object")
+        if t.get("exit_reason"):
+            exits[str(t["exit_reason"])] = exits.get(str(t["exit_reason"]), 0) + 1
+    e = {
+        "strategy": strategy,
+        "selected_pair": pair,
+        "timeframe": timeframe,
+        "timerange": timerange,
+        "start": start.isoformat(),
+        "end": end.isoformat(),
+        "capital_mode": result["capital_mode"],
+        "investment_plan": result["investment_plan"],
+        "effective_settings": effective_settings,
+        "execution_model": execution_model,
+        "execution_scope": result.get("execution_scope"),
+    }
+    e["experiment_id"] = identity(e)
     final = curve[-1]
-    assert isinstance(final, dict)
     return {
         "schema_version": SCHEMA_VERSION,
-        "experiment": {
-            "strategy": strategy,
-            "selected_pair": pair,
-            "timeframe": timeframe,
-            "timerange": timerange,
-            "start": start.isoformat(),
-            "end": end.isoformat(),
-            "capital_mode": result["capital_mode"],
-            "investment_plan": result["investment_plan"],
-            "effective_settings": effective_settings,
-            "execution_model": execution_model,
-        },
+        "experiment": e,
         "native_freqtrade_metrics": {},
         "adapter_metrics": {
             "total_contributed_capital": result["total_contributed_capital"],
@@ -96,182 +121,251 @@ def build_active_result(
         "contribution_ledger": result["contribution_ledger"],
         "trade_ledger": trades,
         "equity_curve": curve,
-        "known_limitations": [
-            "Dry-run research adapter; not byte-for-byte native Freqtrade output.",
-            "Recurring cash flows are excluded from contribution-neutral return.",
-        ],
+        "known_limitations": ["Recurring mode is not native Freqtrade-equivalent."],
     }
 
 
-def validate_active_result(
-    payload: dict[str, object],
-    *,
-    strategy: str | None = None,
-    pair: str | None = None,
-    capital_mode: str | None = None,
-    investment_plan: dict[str, str] | None = None,
-) -> None:
-    if payload.get("schema_version") != SCHEMA_VERSION:
-        raise ValueError("unsupported active result schema version")
-    experiment = payload.get("experiment")
-    metrics = payload.get("adapter_metrics")
-    if not isinstance(experiment, dict) or not isinstance(metrics, dict):
-        raise ValueError("active result lacks experiment or adapter metrics")
-    if strategy and experiment.get("strategy") != strategy:
-        raise ValueError("unexpected strategy")
-    if pair and experiment.get("selected_pair") != pair:
-        raise ValueError("unexpected selected pair")
-    if capital_mode and experiment.get("capital_mode") != capital_mode:
-        raise ValueError("unexpected capital mode")
-    if experiment.get("timeframe") != "4h":
-        raise ValueError("unsupported timeframe")
-    start, end = _time(experiment.get("start"), "start"), _time(experiment.get("end"), "end")
-    if start >= end or parse_timerange(str(experiment.get("timerange"))) != (start, end):
-        raise ValueError("inconsistent timerange")
-    if investment_plan and experiment.get("investment_plan") != investment_plan:
-        raise ValueError("unexpected investment plan")
-    schedule, ledger, trades, curve = (
-        payload.get(k)
-        for k in ("contribution_schedule", "contribution_ledger", "trade_ledger", "equity_curve")
-    )
-    if not all(isinstance(x, list) for x in (schedule, ledger, trades, curve)) or not curve:
-        raise ValueError("missing ledgers or equity curve")
-    schedule_total = sum(
-        (_decimal(x["amount"], "schedule amount") for x in schedule if isinstance(x, dict)),
-        Decimal(),
-    )
-    if schedule_total != _decimal(metrics.get("total_contributed_capital"), "total contributions"):
-        raise ValueError("contributions do not equal schedule")
-    for rows, timestamp_key in (
-        (schedule, "contributed_at"),
-        (ledger, "investor_contribution_timestamp"),
-        (trades, "entry_timestamp"),
-        (curve, "timestamp"),
+def validate_active_result(p: dict[str, object], **expected: object) -> None:
+    if p.get("schema_version") != SCHEMA_VERSION:
+        raise ValueError("unsupported schema")
+    e = p.get("experiment")
+    m = p.get("adapter_metrics")
+    schedule = p.get("contribution_schedule")
+    ledger = p.get("contribution_ledger")
+    trades = p.get("trade_ledger")
+    curve = p.get("equity_curve")
+    if (
+        not all(isinstance(x, dict) for x in (e, m))
+        or not all(isinstance(x, list) for x in (schedule, ledger, trades, curve))
+        or not curve
     ):
-        previous = start
+        raise ValueError("missing artifact fields")
+    e = e
+    m = m
+    schedule = schedule
+    ledger = ledger
+    trades = trades
+    curve = curve
+    for key, val in expected.items():
+        actual = e.get(key.replace("pair", "selected_pair"))
+        if val is not None and actual != val:
+            raise ValueError(f"unexpected {key}")
+    start, end = ts(e.get("start"), "start"), ts(e.get("end"), "end")
+    if (
+        start >= end
+        or parse_timerange(str(e.get("timerange"))) != (start, end)
+        or e.get("experiment_id") != identity(e)
+    ):
+        raise ValueError("inconsistent experiment identity")
+    if not isinstance(e.get("execution_scope"), dict) or not e["execution_scope"].get(
+        "config_digest"
+    ):
+        raise ValueError("missing execution scope digest")
+
+    def ordered(rows: list[object], key: str, extra: str | None = None) -> None:
+        prev = start
         for row in rows:
             if not isinstance(row, dict):
-                raise ValueError("ledger row must be an object")
-            value = _time(row[timestamp_key], "row timestamp")
-            if not start <= value < end or value < previous:
-                raise ValueError("ledgers must be chronological and inside timerange")
-            previous = value
-    for row in curve:
-        assert isinstance(row, dict)
-        if _decimal(row["equity"], "equity") != _decimal(row["free_cash"], "free cash") + _decimal(
-            row["crypto_value"], "crypto value"
+                raise ValueError("ledger row must object")
+            v = ts(row.get(key), key)
+            if not start <= v < end or v < prev:
+                raise ValueError("ledger is not chronological")
+            if extra and ts(row.get(extra), extra) < v:
+                raise ValueError("contribution credited before scheduled")
+            prev = v
+
+    ordered(schedule, "contributed_at")
+    ordered(ledger, "investor_contribution_timestamp", "credited_at")
+    ordered(trades, "entry_timestamp")
+    ordered(curve, "timestamp")
+    if len(schedule) != len(ledger):
+        raise ValueError("schedule/ledger length differs")
+    total = Decimal()
+    fees = Decimal()
+    deployed = Decimal()
+    exits: dict[str, int] = {}
+    open_trades = []
+    previous_exit = start
+    for scheduled, credited in zip(schedule, ledger, strict=True):
+        if (
+            not isinstance(scheduled, dict)
+            or not isinstance(credited, dict)
+            or dec(scheduled.get("amount"), "amount") != dec(credited.get("amount"), "amount")
+            or ts(scheduled.get("contributed_at"), "date")
+            != ts(credited.get("investor_contribution_timestamp"), "date")
         ):
-            raise ValueError("equity does not equal cash plus crypto")
-    for name in (
+            raise ValueError("contribution ledger differs from schedule")
+        total += dec(scheduled["amount"], "amount")
+    for t in trades:
+        if not isinstance(t, dict):
+            raise ValueError("trade invalid")
+        stake, entryfee = (
+            dec(t.get("entry_gross_stake"), "stake"),
+            dec(t.get("entry_fee"), "entry fee"),
+        )
+        if stake + entryfee > dec(t.get("cash_available"), "cash available"):
+            raise ValueError("buy exceeds cash")
+        fees += entryfee
+        entry = ts(t["entry_timestamp"], "entry")
+        if entry < previous_exit:
+            raise ValueError("overlapping trades")
+        if t.get("exit_reason") is None:
+            if any(
+                t.get(x) is not None
+                for x in ("exit_timestamp", "exit_price", "exit_fee", "net_proceeds", "total_fees")
+            ):
+                raise ValueError("open trade has exit fields")
+            open_trades.append(t)
+            deployed = stake
+            continue
+        if t["exit_reason"] not in EXITS:
+            raise ValueError("unsupported exit")
+        required = ("exit_timestamp", "exit_price", "exit_fee", "net_proceeds", "total_fees")
+        if any(t.get(x) is None for x in required):
+            raise ValueError("closed trade missing fields")
+        exit = ts(t["exit_timestamp"], "exit")
+        if exit < entry or exit >= end:
+            raise ValueError("invalid exit timestamp")
+        exitfee = dec(t["exit_fee"], "exit fee")
+        totalfees = dec(t["total_fees"], "total fees")
+        if exitfee < 0 or totalfees != entryfee + exitfee:
+            raise ValueError("inconsistent fees")
+        fees += exitfee
+        exits[str(t["exit_reason"])] = exits.get(str(t["exit_reason"]), 0) + 1
+        previous_exit = exit
+    if len(open_trades) > 1:
+        raise ValueError("more than one open trade")
+    last = curve[-1]
+    if not isinstance(last, dict):
+        raise ValueError("equity invalid")
+    for k in (
+        "free_cash",
+        "crypto_value",
+        "current_deployed_capital",
+        "cumulative_gross_deployed",
+        "equity",
+        "cumulative_contributions",
+        "investment_return",
+    ):
+        dec(last.get(k), k)
+    for k in (
+        "total_contributed_capital",
         "free_cash",
         "crypto_value",
         "current_deployed_capital",
         "cumulative_gross_deployed",
         "final_equity",
-        "investment_return",
         "fees_paid",
-        "contribution_neutral_return",
-        "contribution_neutral_max_drawdown",
     ):
-        if _decimal(metrics.get(name), name) < 0 and name in {
-            "free_cash",
-            "crypto_value",
-            "current_deployed_capital",
-            "cumulative_gross_deployed",
-            "fees_paid",
-            "contribution_neutral_max_drawdown",
-        }:
-            raise ValueError(f"{name} must be non-negative")
+        if dec(m.get(k), k) < 0:
+            raise ValueError(f"negative {k}")
     if (
-        _decimal(metrics["investment_return"], "investment return")
-        != _decimal(metrics["final_equity"], "equity") - schedule_total
+        dec(last["equity"], "equity")
+        != dec(last["free_cash"], "cash") + dec(last["crypto_value"], "crypto")
+        or total != dec(m["total_contributed_capital"], "total")
+        or total != dec(last["cumulative_contributions"], "curve total")
     ):
-        raise ValueError("investment return is inconsistent")
-    open_trades = 0
-    for trade in trades:
-        assert isinstance(trade, dict)
-        if _decimal(trade["entry_gross_stake"], "stake") + _decimal(
-            trade["entry_fee"], "entry fee"
-        ) > _decimal(trade["cash_available"], "available cash"):
-            raise ValueError("buy exceeds available cash")
-        if trade.get("exit_reason") is None:
-            open_trades += 1
-        elif trade["exit_reason"] not in SUPPORTED_EXIT_REASONS:
-            raise ValueError("unsupported exit reason")
-    if open_trades > 1 or (open_trades == 0) != (metrics["open_position_state"] == "closed"):
-        raise ValueError("open-position state is inconsistent")
-    expected_deployed = (
-        _decimal(trades[-1]["entry_gross_stake"], "stake") if open_trades else Decimal()
-    )
-    if _decimal(metrics["current_deployed_capital"], "deployed capital") != expected_deployed:
-        raise ValueError("deployed capital does not match open position")
-
-
-def _summary(
-    active: list[dict[str, object]], native: list[dict[str, object]], metadata: dict[str, Any]
-) -> str:
-    native_reference = native_summary(native, metadata).replace(
-        "# All strategy comparison", "# Native Freqtrade one-shot reference", 1
-    )
-    lines = [
-        native_reference,
-        "",
-        "# Active investor cash-flow simulation",
-        "",
-        "| Strategy | Total contributed | Final equity | Investment return | Free cash | "
-        "Crypto value | Contribution-neutral return | Contribution-neutral drawdown | "
-        "Entries | Exits | Stop exits | Position |",
-        "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |",
-    ]
-    for item in active:
-        e, m = item["experiment"], item["adapter_metrics"]
-        assert isinstance(e, dict) and isinstance(m, dict)
-        lines.append(
-            (
-                "| {strategy} | {total_contributed_capital} | {final_equity} | "
-                "{investment_return} | {free_cash} | {crypto_value} | "
-                "{contribution_neutral_return} | {contribution_neutral_max_drawdown} | "
-                "{entry_count} | {exit_count} | {stop} | {open_position_state} |"
-            ).format(strategy=e["strategy"], stop=m["exit_reason_counts"].get("stop_loss", 0), **m)
-        )
-    lines += [
-        "",
-        "Recurring strategies are ranked only by compatible contribution-neutral return and "
-        "drawdown; native one-shot profit_total is not used.",
-        "",
-    ]
-    return "\n".join(lines)
+        raise ValueError("equity or contributions mismatch")
+    pairs = {
+        "free_cash": "free_cash",
+        "crypto_value": "crypto_value",
+        "current_deployed_capital": "current_deployed_capital",
+        "cumulative_gross_deployed": "cumulative_gross_deployed",
+        "final_equity": "equity",
+        "investment_return": "investment_return",
+    }
+    if (
+        any(dec(m[a], a) != dec(last[b], b) for a, b in pairs.items())
+        or dec(m["investment_return"], "return") != dec(m["final_equity"], "equity") - total
+    ):
+        raise ValueError("final metrics mismatch")
+    if (
+        m.get("entry_count") != len(trades)
+        or m.get("exit_count") != sum(exits.values())
+        or m.get("exit_reason_counts") != exits
+        or dec(m["fees_paid"], "fees") != fees
+    ):
+        raise ValueError("summary counts or fees mismatch")
+    state = m.get("open_position_state")
+    if (
+        state not in {"closed", "open_marked_at_final_close"}
+        or (bool(open_trades) != (state == "open_marked_at_final_close"))
+        or dec(m["current_deployed_capital"], "deployed") != deployed
+    ):
+        raise ValueError("position state mismatch")
+    if (
+        open_trades
+        and dec(m["crypto_value"], "crypto")
+        != dec(open_trades[0]["quantity"], "quantity")
+        * dec(last.get("close_price", last.get("crypto_value")), "final price")
+        and last.get("close_price") is not None
+    ):
+        raise ValueError("crypto value mismatch")
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--active-result", action="append", default=[], type=Path)
-    parser.add_argument("--native-comparison", type=Path, required=True)
-    parser.add_argument("--metadata", type=Path, required=True)
-    parser.add_argument("--output", type=Path, required=True)
-    parser.add_argument("--summary", type=Path, required=True)
-    args = parser.parse_args()
-    active = [json.loads(path.read_text()) for path in args.active_result]
-    if len(active) != len(STRATEGY_ORDER):
-        raise ValueError("exactly seven active results are required")
-    for expected, result in zip(STRATEGY_ORDER, active, strict=True):
-        validate_active_result(result, strategy=expected)
-    native, metadata = (
-        validate_comparison(args.native_comparison),
-        json.loads(args.metadata.read_text()),
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--active-result", action="append", type=Path, required=True)
+    ap.add_argument("--native-comparison", type=Path, required=True)
+    ap.add_argument("--metadata", type=Path, required=True)
+    ap.add_argument("--output", type=Path, required=True)
+    ap.add_argument("--summary", type=Path, required=True)
+    a = ap.parse_args()
+    results = [json.loads(x.read_text()) for x in a.active_result]
+    if len(results) != 7:
+        raise ValueError("exactly seven active results required")
+    for r in results:
+        validate_active_result(r)
+    identities = {
+        r["experiment"]["experiment_id"] for r in results if isinstance(r.get("experiment"), dict)
+    }
+    if len(identities) != 1 or {r["experiment"]["strategy"] for r in results} != {*STRATEGY_ORDER}:
+        raise ValueError("results do not share one complete experiment")
+    native = validate_comparison(a.native_comparison)
+    meta = json.loads(a.metadata.read_text())
+    exp = results[0]["experiment"]
+    if (
+        not isinstance(exp, dict)
+        or meta.get("timerange") != exp["timerange"]
+        or meta.get("timeframe") != exp["timeframe"]
+        or meta.get("pairs") != exp["selected_pair"]
+    ):
+        raise ValueError("native metadata differs from active experiment")
+    out = {
+        "schema_version": "controlled-comparison/v1",
+        "experiment": exp,
+        "native_freqtrade_one_shot_reference": native,
+        "active_investor_cash_flow_simulation": results,
+    }
+    a.output.write_text(json.dumps(out, default=str, indent=2) + "\n")
+    lines = (
+        [
+            "# Native Freqtrade one-shot reference",
+            "",
+            "| Strategy | Trades | Profit total % | Profit abs | Win rate % | Max drawdown % | Profit factor | Expectancy |",  # noqa: E501
+            "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
+        ]
+        + [
+            "| {strategy} | {trades} | {profit_total:.2%} | {profit_total_abs:.8f} | {winrate:.2%} | {max_drawdown_account:.2%} | {profit_factor:.4f} | {expectancy:.8f} |".format(  # noqa: E501
+                **x
+            )
+            for x in native
+        ]
+        + ["", "# Active investor cash-flow simulation", ""]
     )
-    args.output.write_text(
-        json.dumps(
-            {
-                "schema_version": "controlled-comparison/v1",
-                "native_freqtrade_one_shot_reference": native,
-                "active_investor_cash_flow_simulation": active,
-            },
-            indent=2,
+    for r in results:
+        mm = r["adapter_metrics"]
+        ee = r["experiment"]
+        lines.append(
+            f"- {ee['strategy']}: contributed {mm['total_contributed_capital']}; equity {mm['final_equity']}; return {mm['investment_return']}; cash {mm['free_cash']}; crypto {mm['crypto_value']}; neutral return {mm['contribution_neutral_return']}; neutral drawdown {mm['contribution_neutral_max_drawdown']}; entries {mm['entry_count']}; exits {mm['exit_count']}; stop exits {mm['exit_reason_counts'].get('stop_loss', 0)}; position {mm['open_position_state']}."  # noqa: E501
         )
-        + "\n"
-    )
-    args.summary.write_text(_summary(active, native, metadata))
+    lines += [
+        "",
+        "Recurring results are ranked only by contribution-neutral metrics under this identical experiment."  # noqa: E501
+        if exp["capital_mode"] == "recurring_monthly_contributions"
+        else "One-shot differential validation must pass; recurring equivalence is not claimed.",
+    ]
+    a.summary.write_text("\n".join(lines) + "\n")
 
 
 if __name__ == "__main__":

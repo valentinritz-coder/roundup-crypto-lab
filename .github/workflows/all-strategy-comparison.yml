@@ -8,7 +8,7 @@ on:
       capital_mode: {description: Investor capital mode, required: true, default: "recurring_monthly_contributions", type: choice, options: ["recurring_monthly_contributions", "one_shot_capital"]}
 permissions: {contents: read}
 concurrency: {group: kraken-ohlcv-pipeline, cancel-in-progress: false}
-env: {FREQTRADE_VERSION: '2026.6', FREQTRADE_COMMIT: b604e2fd70539f7f73d3c62c16ce0b155bbab319}
+env: {INITIAL_CAPITAL: '40', MONTHLY_BUDGET: '40', CONTRIBUTION_DAY: '1', FEE: '0.0026', FREQTRADE_VERSION: '2026.6', FREQTRADE_COMMIT: b604e2fd70539f7f73d3c62c16ce0b155bbab319}
 jobs:
   compare-all-strategies:
     runs-on: ubuntu-latest
@@ -37,7 +37,7 @@ jobs:
           test "$TIMEFRAME" = 4h
           test "$PAIR" = BTC/EUR || test "$PAIR" = ETH/EUR
           test "$CAPITAL_MODE" = recurring_monthly_contributions || test "$CAPITAL_MODE" = one_shot_capital
-          python -c 'from pathlib import Path; from roundup_crypto_lab.freqtrade_differential import generate_single_pair_config; import os; generate_single_pair_config(Path("user_data/config.json"), Path("artifacts/pair-config.json"), os.environ["PAIR"])'
+          python -c 'from pathlib import Path; from roundup_crypto_lab.freqtrade_differential import generate_single_pair_config; import os; generate_single_pair_config(Path("user_data/config.json"), Path("artifacts/pair-config.json"), os.environ["PAIR"], overrides={"dry_run_wallet": int(os.environ["INITIAL_CAPITAL"]), "fee": float(os.environ["FEE"])})'
           test '${{ steps.restore-kraken.outputs.cache-hit }}' != '' || { echo 'No Kraken cache was restored: run Update Kraken data first.'; exit 1; }
           python -m roundup_crypto_lab.breakout_comparison validate-data "$TIMERANGE" user_data/data/kraken |& tee artifacts-data-validation.txt
           python -m freqtrade list-data --config artifacts/pair-config.json --show-timerange |& tee list-data.txt
@@ -65,16 +65,16 @@ jobs:
         env: {TIMERANGE: '${{ inputs.timerange }}', PAIR: '${{ inputs.pair }}', CAPITAL_MODE: '${{ inputs.capital_mode }}'}
         run: |
           for strategy in RoundupBreakoutStrategy RoundupBreakoutTrendStrategy RoundupBreakoutAtrStrategy RoundupBreakoutAtrVolumeStrategy RoundupTrendPullbackStrategy RoundupConfirmedBreakoutStrategy RoundupVolatilitySqueezeStrategy; do
-            python -m roundup_crypto_lab.freqtrade_active --data-file "user_data/data/kraken/${PAIR//\//_}-4h.feather" --pair "$PAIR" --strategy "$strategy" --timerange "$TIMERANGE" --capital-mode "$CAPITAL_MODE" --initial-capital 40 --monthly-budget 40 --contribution-day 1 --fee 0.0026 --config-file artifacts/pair-config.json --output "artifacts/results/active-$strategy.json"
+            python -m roundup_crypto_lab.freqtrade_active --data-file "user_data/data/kraken/${PAIR//\//_}-4h.feather" --pair "$PAIR" --strategy "$strategy" --timerange "$TIMERANGE" --capital-mode "$CAPITAL_MODE" --initial-capital "$INITIAL_CAPITAL" --monthly-budget "$MONTHLY_BUDGET" --contribution-day "$CONTRIBUTION_DAY" --fee "$FEE" --config-file artifacts/pair-config.json --output "artifacts/results/active-$strategy.json"
           done
       - name: Generate, validate, and summarize comparison
         env: {TIMERANGE: '${{ inputs.timerange }}', TIMEFRAME: '${{ inputs.timeframe }}', PAIR: '${{ inputs.pair }}', CAPITAL_MODE: '${{ inputs.capital_mode }}'}
         run: |
           python -m roundup_crypto_lab.compare_strategies --expected-strategy RoundupBreakoutStrategy --expected-strategy RoundupBreakoutTrendStrategy --expected-strategy RoundupBreakoutAtrStrategy --expected-strategy RoundupBreakoutAtrVolumeStrategy --expected-strategy RoundupTrendPullbackStrategy --expected-strategy RoundupConfirmedBreakoutStrategy --expected-strategy RoundupVolatilitySqueezeStrategy --result RoundupBreakoutStrategy=artifacts/results/breakout-baseline.zip --result RoundupBreakoutTrendStrategy=artifacts/results/breakout-trend.zip --result RoundupBreakoutAtrStrategy=artifacts/results/breakout-atr.zip --result RoundupBreakoutAtrVolumeStrategy=artifacts/results/breakout-atr-volume.zip --result RoundupTrendPullbackStrategy=artifacts/results/trend-pullback.zip --result RoundupConfirmedBreakoutStrategy=artifacts/results/confirmed-breakout.zip --result RoundupVolatilitySqueezeStrategy=artifacts/results/volatility-squeeze.zip --output artifacts/results/all-strategies-comparison.json
-          python -m roundup_crypto_lab.all_strategy_comparison artifacts/results/all-strategies-comparison.json artifacts/results/metadata.json artifacts/results/job-summary.md --timerange "$TIMERANGE" --timeframe "$TIMEFRAME" --commit-sha "$GITHUB_SHA" --python-version "$(python --version)" --freqtrade-version "$(python -m freqtrade --version)" --ccxt-version "$(python -c 'import ccxt; print(ccxt.__version__)')" --run-date-utc "$(date --utc +%Y-%m-%dT%H:%M:%SZ)" --config user_data/config.json --pairs "$PAIR" --fee "$(python -c 'import json; print(json.load(open("user_data/config.json")).get("fee", "exchange-default"))')" --starting-balance "$(python -c 'import json; print(json.load(open("user_data/config.json"))["dry_run_wallet"])')"
+          python -m roundup_crypto_lab.all_strategy_comparison artifacts/results/all-strategies-comparison.json artifacts/results/metadata.json artifacts/results/job-summary.md --timerange "$TIMERANGE" --timeframe "$TIMEFRAME" --commit-sha "$GITHUB_SHA" --python-version "$(python --version)" --freqtrade-version "$(python -m freqtrade --version)" --ccxt-version "$(python -c 'import ccxt; print(ccxt.__version__)')" --run-date-utc "$(date --utc +%Y-%m-%dT%H:%M:%SZ)" --config artifacts/pair-config.json --pairs "$PAIR" --fee "$FEE" --starting-balance "$INITIAL_CAPITAL"
           python -m roundup_crypto_lab.active_comparison --native-comparison artifacts/results/all-strategies-comparison.json --metadata artifacts/results/metadata.json --active-result artifacts/results/active-RoundupBreakoutStrategy.json --active-result artifacts/results/active-RoundupBreakoutTrendStrategy.json --active-result artifacts/results/active-RoundupBreakoutAtrStrategy.json --active-result artifacts/results/active-RoundupBreakoutAtrVolumeStrategy.json --active-result artifacts/results/active-RoundupTrendPullbackStrategy.json --active-result artifacts/results/active-RoundupConfirmedBreakoutStrategy.json --active-result artifacts/results/active-RoundupVolatilitySqueezeStrategy.json --output artifacts/results/controlled-comparison.json --summary artifacts/results/job-summary.md
           cat artifacts/results/job-summary.md >> "$GITHUB_STEP_SUMMARY"
-      - if: always()
+      - if: success()
         uses: actions/upload-artifact@v4
         with:
           name: 'all-strategy-comparison-${{ github.run_id }}'

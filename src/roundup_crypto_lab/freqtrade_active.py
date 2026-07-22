@@ -244,6 +244,7 @@ def run_freqtrade_strategy(
                 "selected_pair": pair,
                 "config_digest": config_digest(config),
                 "timeframe": config["timeframe"],
+                "generated_config": str(config_file),
             },
         }
     )

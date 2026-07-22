@@ -33,6 +33,12 @@ def test_versioned_active_artifact_validates_and_rejects_cash_overspend() -> Non
     )
     raw.update(
         {
+            "execution_scope": {
+                "selected_pair": "BTC/EUR",
+                "config_digest": "fixture",
+                "timeframe": "4h",
+                "generated_config": "fixture.json",
+            },
             "strategy": "RoundupBreakoutStrategy",
             "pair": "BTC/EUR",
             "investment_plan": {
@@ -79,6 +85,12 @@ def test_end_to_end_fixture_generates_validates_combines_and_summarizes(
         datetime(2026, 1, 2, tzinfo=UTC),
         lambda _: StrategyDecision(),
     )
+    raw["execution_scope"] = {
+        "selected_pair": "BTC/EUR",
+        "config_digest": "fixture",
+        "timeframe": "4h",
+        "generated_config": "fixture.json",
+    }
     raw["investment_plan"] = {
         "initial_capital": Decimal("100"),
         "monthly_budget": Decimal("40"),
@@ -116,17 +128,15 @@ def test_end_to_end_fixture_generates_validates_combines_and_summarizes(
     native_path.write_text(json.dumps(native))
     metadata_path.write_text(
         json.dumps(
-            dict.fromkeys(
-                (
-                    "timerange",
-                    "timeframe",
-                    "commit_sha",
-                    "freqtrade_version",
-                    "python_version",
-                    "run_date_utc",
-                ),
-                "fixture",
-            )
+            {
+                "timerange": "20260101-20260102",
+                "timeframe": "4h",
+                "pairs": "BTC/EUR",
+                "commit_sha": "fixture",
+                "freqtrade_version": "fixture",
+                "python_version": "fixture",
+                "run_date_utc": "fixture",
+            }
         )
     )
     output, summary = tmp_path / "combined.json", tmp_path / "summary.md"
