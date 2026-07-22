@@ -23,7 +23,11 @@ def _load_active(path: Path, strategy: str) -> tuple[dict[str, Any], dict[str, A
     experiment = document.get("experiment")
     metrics = document.get("adapter_metrics")
     ledger = document.get("trade_ledger")
-    if not isinstance(experiment, dict) or not isinstance(metrics, dict) or not isinstance(ledger, list):
+    if (
+        not isinstance(experiment, dict)
+        or not isinstance(metrics, dict)
+        or not isinstance(ledger, list)
+    ):
         raise ValueError("active artifact is invalid")
     if experiment.get("strategy") != strategy:
         raise ValueError("active strategy differs from requested strategy")
@@ -50,9 +54,15 @@ def _jsonable(value: object) -> object:
     return str(value)
 
 
-def _first_trade_difference(native_trades: list[dict[str, object]], adapter_trades: list[dict[str, object]]) -> dict[str, object]:
+def _first_trade_difference(
+    native_trades: list[dict[str, object]],
+    adapter_trades: list[dict[str, object]],
+) -> dict[str, object]:
     common = min(len(native_trades), len(adapter_trades))
-    index = next((i for i in range(common) if native_trades[i] != adapter_trades[i]), common)
+    index = next(
+        (i for i in range(common) if native_trades[i] != adapter_trades[i]),
+        common,
+    )
     return {
         "first_divergent_index": index,
         "native_trade_count": len(native_trades),
@@ -85,7 +95,9 @@ def diagnose(native_zip: Path, active_path: Path, strategy: str) -> dict[str, ob
                     "checked_fields": CHECKED_FIELDS,
                     "error_type": type(error).__name__,
                     "error": str(error),
-                    "diagnostics": _first_trade_difference(expected["trades"], actual["trades"]),
+                    "diagnostics": _first_trade_difference(
+                        expected["trades"], actual["trades"]
+                    ),
                     "native_balances": {
                         "free_cash": expected["free_cash"],
                         "crypto_value": expected["crypto_value"],
@@ -112,7 +124,14 @@ def combine(paths: list[Path]) -> dict[str, object]:
     if len(paths) != len(STRATEGY_ORDER):
         raise ValueError("exactly seven diagnostic results are required")
     documents = [_load(path) for path in paths]
-    metadata = ("schema_version", "experiment_id", "selected_pair", "timeframe", "timerange", "capital_mode")
+    metadata = (
+        "schema_version",
+        "experiment_id",
+        "selected_pair",
+        "timeframe",
+        "timerange",
+        "capital_mode",
+    )
     first = documents[0]
     identity = tuple(first.get(key) for key in metadata)
     if any(value in (None, "") for value in identity):
@@ -122,13 +141,20 @@ def combine(paths: list[Path]) -> dict[str, object]:
         if tuple(document.get(key) for key in metadata) != identity:
             raise ValueError("diagnostic experiment metadata differs")
         strategies = document.get("strategies")
-        if not isinstance(strategies, list) or len(strategies) != 1 or not isinstance(strategies[0], dict):
+        if (
+            not isinstance(strategies, list)
+            or len(strategies) != 1
+            or not isinstance(strategies[0], dict)
+        ):
             raise ValueError("diagnostic result must contain one strategy")
         rows.append(dict(strategies[0]))
     if [row.get("strategy") for row in rows] != list(STRATEGY_ORDER):
         raise ValueError("diagnostic strategies must be complete and ordered")
+    overall_status = (
+        "passed" if all(row.get("status") == "passed" for row in rows) else "failed"
+    )
     return {key: first[key] for key in metadata} | {
-        "overall_status": "passed" if all(row.get("status") == "passed" for row in rows) else "failed",
+        "overall_status": overall_status,
         "strategies": rows,
     }
 
