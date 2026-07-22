@@ -67,7 +67,7 @@ def _validate_curve(
             if current_deployed != open_trade["_stake"]:
                 raise ValueError("curve deployed capital differs from open trade")
             if crypto_value != open_trade["_quantity"] * mark_price:
-                raise ValueError(curve crypto value differs from open quantity)
+                raise ValueError("curve crypto value differs from open quantity")
         elif current_deployed != 0 or crypto_value != 0:
             raise ValueError("closed curve row retains deployed capital or crypto")
         if cumulative_contributions < previous_contributions or cumulative_gross < previous_gross:
