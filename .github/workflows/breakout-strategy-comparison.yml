@@ -1,0 +1,111 @@
+name: Breakout strategy comparison
+on:
+  workflow_dispatch:
+    inputs:
+      timerange:
+        description: Timerange Freqtrade au format YYYYMMDD-YYYYMMDD
+        required: true
+        type: string
+      timeframe:
+        description: Timeframe Freqtrade
+        required: true
+        default: "4h"
+        type: choice
+        options: ["4h"]
+permissions: {contents: read}
+concurrency: {group: kraken-ohlcv-pipeline, cancel-in-progress: false}
+env: {FREQTRADE_VERSION: '2026.6', FREQTRADE_COMMIT: b604e2fd70539f7f73d3c62c16ce0b155bbab319}
+jobs:
+  compare-breakout-strategies:
+    runs-on: ubuntu-latest
+    defaults: {run: {shell: "bash -eo pipefail {0}"}}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.12', cache: pip, cache-dependency-path: pyproject.toml}
+      - name: Install project and pinned Freqtrade
+        run: |
+          python -m pip install -e '.[dev]'
+          git clone --depth 1 --branch "$FREQTRADE_VERSION" https://github.com/freqtrade/freqtrade.git .freqtrade-src
+          test "$(git -C .freqtrade-src rev-parse HEAD)" = "$FREQTRADE_COMMIT"
+          python -m pip install -r .freqtrade-src/requirements.txt
+          python -m pip install --no-deps -e .freqtrade-src
+          python -m pip install --no-deps -e .freqtrade-src/ft_client
+      - name: pip check
+        run: python -m pip check
+      - name: Restore Kraken cache
+        uses: actions/cache/restore@v4
+        id: restore-kraken
+        with: {path: user_data/data/kraken, key: 'kraken-ohlcv-v1-update-${{ github.run_id }}', restore-keys: kraken-ohlcv-v1-}
+      - name: Validate workflow inputs
+        env: {TIMERANGE: '${{ inputs.timerange }}', TIMEFRAME: '${{ inputs.timeframe }}'}
+        run: |
+          python -m roundup_crypto_lab.breakout_comparison validate-timerange "$TIMERANGE"
+          test "$TIMEFRAME" = '4h'
+      - name: Require a restored Kraken cache and validate prepared data
+        env: {TIMERANGE: '${{ inputs.timerange }}'}
+        run: |
+          test '${{ steps.restore-kraken.outputs.cache-hit }}' != '' || { echo 'No Kraken cache was restored: run Update Kraken data first.'; exit 1; }
+          python -m roundup_crypto_lab.breakout_comparison validate-data "$TIMERANGE" user_data/data/kraken |& tee artifacts-data-validation.txt
+          python -m freqtrade list-data \
+            --config user_data/config.json \
+            --show-timerange |& tee list-data.txt
+      - name: Create output directories
+        run: mkdir -p artifacts/results/{baseline,trend,atr,atr-volume} artifacts/logs
+      - name: Backtest baseline
+        env: {TIMERANGE: '${{ inputs.timerange }}', TIMEFRAME: '${{ inputs.timeframe }}'}
+        run: python -m freqtrade backtesting --config user_data/config.json --timeframe "$TIMEFRAME" --timerange "$TIMERANGE" --export trades --export-filename artifacts/results/baseline/result.zip --strategy RoundupBreakoutStrategy |& tee artifacts/logs/baseline.txt
+      - name: Validate baseline result exists
+        run: |
+          mapfile -t results < <(find artifacts/results/baseline -maxdepth 1 -type f -name '*.zip' -print)
+          test "${#results[@]}" -eq 1 || { echo 'Expected exactly one baseline ZIP.'; exit 1; }
+          mv "${results[0]}" artifacts/results/baseline.zip
+      - name: Backtest trend
+        env: {TIMERANGE: '${{ inputs.timerange }}', TIMEFRAME: '${{ inputs.timeframe }}'}
+        run: python -m freqtrade backtesting --config user_data/config.json --timeframe "$TIMEFRAME" --timerange "$TIMERANGE" --export trades --export-filename artifacts/results/trend/result.zip --strategy RoundupBreakoutTrendStrategy |& tee artifacts/logs/trend.txt
+      - name: Validate trend result exists
+        run: |
+          mapfile -t results < <(find artifacts/results/trend -maxdepth 1 -type f -name '*.zip' -print)
+          test "${#results[@]}" -eq 1 || { echo 'Expected exactly one trend ZIP.'; exit 1; }
+          mv "${results[0]}" artifacts/results/trend.zip
+      - name: Backtest ATR
+        env: {TIMERANGE: '${{ inputs.timerange }}', TIMEFRAME: '${{ inputs.timeframe }}'}
+        run: python -m freqtrade backtesting --config user_data/config.json --timeframe "$TIMEFRAME" --timerange "$TIMERANGE" --export trades --export-filename artifacts/results/atr/result.zip --strategy RoundupBreakoutAtrStrategy |& tee artifacts/logs/atr.txt
+      - name: Validate ATR result exists
+        run: |
+          mapfile -t results < <(find artifacts/results/atr -maxdepth 1 -type f -name '*.zip' -print)
+          test "${#results[@]}" -eq 1 || { echo 'Expected exactly one ATR ZIP.'; exit 1; }
+          mv "${results[0]}" artifacts/results/atr.zip
+      - name: Backtest ATR+Volume
+        env: {TIMERANGE: '${{ inputs.timerange }}', TIMEFRAME: '${{ inputs.timeframe }}'}
+        run: python -m freqtrade backtesting --config user_data/config.json --timeframe "$TIMEFRAME" --timerange "$TIMERANGE" --export trades --export-filename artifacts/results/atr-volume/result.zip --strategy RoundupBreakoutAtrVolumeStrategy |& tee artifacts/logs/atr-volume.txt
+      - name: Validate ATR+Volume result exists
+        run: |
+          mapfile -t results < <(find artifacts/results/atr-volume -maxdepth 1 -type f -name '*.zip' -print)
+          test "${#results[@]}" -eq 1 || { echo 'Expected exactly one ATR+Volume ZIP.'; exit 1; }
+          mv "${results[0]}" artifacts/results/atr-volume.zip
+      - name: Generate comparison JSON
+        run: |
+          python -m roundup_crypto_lab.compare_strategies \
+            --result RoundupBreakoutStrategy=artifacts/results/baseline.zip \
+            --result RoundupBreakoutTrendStrategy=artifacts/results/trend.zip \
+            --result RoundupBreakoutAtrStrategy=artifacts/results/atr.zip \
+            --result RoundupBreakoutAtrVolumeStrategy=artifacts/results/atr-volume.zip \
+            --output artifacts/results/breakout-comparison.json
+      - name: Validate comparison JSON
+        run: python -m roundup_crypto_lab.breakout_comparison validate-comparison artifacts/results/breakout-comparison.json
+      - name: Write GitHub Actions Job Summary
+        env: {TIMERANGE: '${{ inputs.timerange }}', TIMEFRAME: '${{ inputs.timeframe }}'}
+        run: |
+          python -m roundup_crypto_lab.breakout_comparison write-report artifacts/results/breakout-comparison.json artifacts/results/metadata.json artifacts/results/job-summary.md --timerange "$TIMERANGE" --timeframe "$TIMEFRAME" --commit-sha "$GITHUB_SHA" --python-version "$(python --version)" --freqtrade-version "$(python -m freqtrade --version)" --run-date-utc "$(date --utc +%Y-%m-%dT%H:%M:%SZ)"
+          cat artifacts/results/job-summary.md >> "$GITHUB_STEP_SUMMARY"
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: 'breakout-strategy-comparison-${{ github.run_id }}'
+          path: |
+            artifacts/
+            artifacts-data-validation.txt
+            list-data.txt
+          if-no-files-found: warn
+          retention-days: 30
