@@ -102,6 +102,14 @@ trend filter, an ATR breakout-strength filter, and then a relative-volume filter
 presumed profitable. See [`docs/breakout-strategy-variants.md`](docs/breakout-strategy-variants.md)
 for the exact rules and reproducible comparison report.
 
+Three second-generation, causal entry hypotheses are also available: a SMA20 pullback in an
+established uptrend, a one-candle-confirmed breakout, and a breakout after a Bollinger-width
+compression. They share the ATR14 two-ATR stop and SMA20 exit, remain long-only and are research
+experiments rather than financial advice. See
+[`docs/second-generation-strategies.md`](docs/second-generation-strategies.md). Run **Actions →
+All strategy comparison** to backtest all seven strategies on one identical cached Kraken dataset,
+timerange, configuration, fees, and starting capital.
+
 Run each strategy separately on the same timerange (replace `$TIMERANGE` with the selected window):
 
 ```bash

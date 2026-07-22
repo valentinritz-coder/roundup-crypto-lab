@@ -51,3 +51,12 @@ présente les métriques dans l'ordre baseline, trend, ATR et ATR+volume. Les ra
 `profit_total`, `winrate` et `max_drawdown_account` y sont multipliés par 100 seulement pour
 l'affichage; les valeurs brutes du JSON ne changent pas. Un seul timerange ne permet pas de conclure
 à la rentabilité, notamment hors échantillon.
+
+## Références dans la comparaison complète
+
+Les quatre variantes historiques sont conservées comme références dans **All strategy comparison**.
+Cette action manuelle ajoute les trois stratégies causales de seconde génération sur le même cache,
+timerange, timeframe, configuration, frais et capital; leurs hypothèses et limites sont détaillées
+par [`second-generation-strategies.md`](second-generation-strategies.md). Cette comparaison contrôlée
+ne sélectionne pas automatiquement une stratégie et nécessite ensuite des fenêtres hors-échantillon
+et walk-forward.

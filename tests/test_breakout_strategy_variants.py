@@ -13,6 +13,9 @@ STRATEGY_NAMES = (
     "RoundupBreakoutTrendStrategy",
     "RoundupBreakoutAtrStrategy",
     "RoundupBreakoutAtrVolumeStrategy",
+    "RoundupTrendPullbackStrategy",
+    "RoundupConfirmedBreakoutStrategy",
+    "RoundupVolatilitySqueezeStrategy",
 )
 
 
@@ -30,14 +33,14 @@ def freqtrade_and_talib_stubs(monkeypatch: pytest.MonkeyPatch) -> None:
     abstract = types.ModuleType("talib.abstract")
     abstract.SMA = lambda frame, timeperiod: frame["close"].rolling(timeperiod).mean()
     abstract.ATR = lambda frame, timeperiod: (
-        frame["high"] - frame["low"]
-    ).rolling(timeperiod).mean()
+        (frame["high"] - frame["low"]).rolling(timeperiod).mean()
+    )
     talib_module = types.ModuleType("talib")
     talib_module.abstract = abstract
     monkeypatch.setitem(sys.modules, "talib", talib_module)
     monkeypatch.setitem(sys.modules, "talib.abstract", abstract)
     monkeypatch.syspath_prepend(str(STRATEGIES_DIR))
-    for module in (*STRATEGY_NAMES, "_roundup_breakout_variants"):
+    for module in (*STRATEGY_NAMES, "_roundup_breakout_variants", "ExperimentalTrendBase"):
         sys.modules.pop(module, None)
 
 
@@ -58,7 +61,7 @@ def candles() -> pd.DataFrame:
     )
 
 
-def test_all_four_strategies_import_and_process_synthetic_candles() -> None:
+def test_all_strategies_import_and_process_synthetic_candles() -> None:
     for name in STRATEGY_NAMES:
         strategy = load(name)()
         assert strategy.timeframe == "4h"
@@ -68,6 +71,15 @@ def test_all_four_strategies_import_and_process_synthetic_candles() -> None:
         result = strategy.populate_entry_trend(dataframe, {})
         assert "breakout_high_20" in result
         assert "enter_long" in result
+
+
+def test_second_generation_signals_are_explicitly_causal() -> None:
+    pullback = inspect_source(load("RoundupTrendPullbackStrategy").populate_entry_trend)
+    confirmed = inspect_source(load("RoundupConfirmedBreakoutStrategy").populate_entry_trend)
+    squeeze = inspect_source(load("RoundupVolatilitySqueezeStrategy").populate_indicators)
+    assert '"sma_100"].shift(5)' in pullback
+    assert '"breakout_high_20"].shift(1)' in confirmed
+    assert "rolling(100).quantile(0.20).shift(1)" in squeeze
 
 
 def test_breakout_is_previous_twenty_candle_high() -> None:
@@ -80,7 +92,7 @@ def test_variant_entry_filters_and_tags() -> None:
     atr = load("RoundupBreakoutAtrStrategy")().populate_entry_trend
     volume_strategy = load("RoundupBreakoutAtrVolumeStrategy")()
     assert "sma_50" in inspect_source(trend) and 'sma_100"].shift(1)' in inspect_source(trend)
-    assert "0.25 * dataframe[\"atr_14\"]" in inspect_source(atr)
+    assert '0.25 * dataframe["atr_14"]' in inspect_source(atr)
     assert "volume_sma_20" in inspect_source(volume_strategy.populate_indicators)
     assert "volume_sma_20" in inspect_source(volume_strategy.populate_entry_trend)
 
