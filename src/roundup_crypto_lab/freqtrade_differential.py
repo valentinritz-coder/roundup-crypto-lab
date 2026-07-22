@@ -84,7 +84,7 @@ def assert_lifecycle_equivalent(
     adapter: Sequence[Mapping[str, Any]],
     *,
     quantity_tolerance: Decimal = Decimal("0.00000001"),
-    monetary_tolerance: Decimal = Decimal("0.00000001"),
+    derived_monetary_tolerance: Decimal = Decimal("0.00000001"),
 ) -> None:
     """Reject every lifecycle mismatch, allowing only explicit quantity rounding."""
     if len(native) != len(adapter):
@@ -97,17 +97,17 @@ def assert_lifecycle_equivalent(
                     > quantity_tolerance
                 ):
                     raise AssertionError(f"trade {index} quantity differs")
-            elif field in {
-                "entry_price",
-                "exit_price",
-                "entry_gross_stake",
-                "entry_fee",
-                "exit_fee",
-            }:
+            elif field in {"entry_fee", "exit_fee"}:
                 if (
                     abs(Decimal(str(expected[field])) - Decimal(str(actual[field])))
-                    > monetary_tolerance
+                    > derived_monetary_tolerance
                 ):
+                    raise AssertionError(
+                        f"trade {index} {field} differs: native={expected[field]!r}, "
+                        f"adapter={actual[field]!r}"
+                    )
+            elif field in {"entry_price", "exit_price", "entry_gross_stake"}:
+                if Decimal(str(expected[field])) != Decimal(str(actual[field])):
                     raise AssertionError(
                         f"trade {index} {field} differs: native={expected[field]!r}, "
                         f"adapter={actual[field]!r}"

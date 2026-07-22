@@ -25,6 +25,22 @@ FEE, INITIAL = Decimal("0.005"), Decimal("100")
 TIMERANGE = "20260121-20260126"
 
 
+def normalize_native_exit_reason(reason: object) -> str:
+    """Map only native exit reasons exercised by the supported adapter scope."""
+    mapping = {
+        "exit_signal": "exit_signal",
+        # Freqtrade exports the repository strategy's exit tag as the reason.
+        "close_below_sma20": "exit_signal",
+        "stop_loss": "stop_loss",
+        "trailing_stop_loss": "stop_loss",
+    }
+    value = str(reason)
+    try:
+        return mapping[value]
+    except KeyError:
+        raise AssertionError(f"unsupported native Freqtrade exit reason: {value!r}") from None
+
+
 def fixture_frame() -> pd.DataFrame:
     """120 warm-up candles, a signal exit, then a fixed-stop exit."""
     dates = pd.date_range("2026-01-01", periods=150, freq="4h", tz="UTC")
@@ -120,9 +136,7 @@ def _native_schema(result: dict[str, object]) -> dict[str, object]:
                 "exit_fee": Decimal(str(trade["amount"]))
                 * Decimal(str(trade["close_rate"]))
                 * Decimal(str(trade["fee_close"])),
-                "exit_reason": "stop_loss"
-                if "stop_loss" in trade["exit_reason"]
-                else "exit_signal",
+                "exit_reason": normalize_native_exit_reason(trade["exit_reason"]),
             }
         )
     # Closed-only fixture: Freqtrade's final balance is initial capital plus export profit.
@@ -137,8 +151,17 @@ def _native_schema(result: dict[str, object]) -> dict[str, object]:
 
 def _adapter_schema(result: dict[str, object]) -> dict[str, object]:
     curve = result["equity_curve"][-1]  # type: ignore[index]
+    # Freqtrade serializes exported stake to eight decimal places. Normalize
+    # the adapter to that export representation before its strict comparison.
+    trades = []
+    for trade in result["trades"]:  # type: ignore[index]
+        normalized = dict(trade)
+        normalized["entry_gross_stake"] = Decimal(str(trade["entry_gross_stake"])).quantize(
+            Decimal("0.00000001")
+        )
+        trades.append(normalized)
     return {
-        "trades": result["trades"],
+        "trades": trades,
         "free_cash": curve["free_cash"],
         "crypto_value": curve["crypto_value"],
         "final_equity": curve["equity"],
@@ -185,3 +208,65 @@ def test_native_and_adapter_execute_the_same_offline_one_shot_scope(tmp_path: Pa
     assert {trade["exit_reason"] for trade in native["trades"]} == {"exit_signal", "stop_loss"}
     assert_lifecycle_equivalent(native["trades"], adapter["trades"])
     assert_final_balances_equivalent(native, adapter)
+
+
+@pytest.mark.parametrize(
+    ("reason", "normalized"),
+    [
+        ("exit_signal", "exit_signal"),
+        ("close_below_sma20", "exit_signal"),
+        ("stop_loss", "stop_loss"),
+        ("trailing_stop_loss", "stop_loss"),
+    ],
+)
+def test_normalize_native_exit_reason_accepts_only_documented_reasons(
+    reason: str, normalized: str
+) -> None:
+    assert normalize_native_exit_reason(reason) == normalized
+
+
+@pytest.mark.parametrize("reason", ["roi", "force_exit", "new_reason", ""])
+def test_normalize_native_exit_reason_rejects_unknown_reasons(reason: str) -> None:
+    with pytest.raises(AssertionError, match="unsupported native Freqtrade exit reason"):
+        normalize_native_exit_reason(reason)
+
+
+def _trade(**overrides: object) -> dict[str, object]:
+    trade = {
+        "entry_timestamp": "2026-01-01T00:00:00+00:00",
+        "exit_timestamp": "2026-01-01T04:00:00+00:00",
+        "entry_price": Decimal("100"),
+        "exit_price": Decimal("101"),
+        "entry_gross_stake": Decimal("80"),
+        "quantity": Decimal("0.8"),
+        "entry_fee": Decimal("0.4"),
+        "exit_fee": Decimal("0.404"),
+        "exit_reason": "exit_signal",
+    }
+    trade.update(overrides)
+    return trade
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "passes"),
+    [
+        ("quantity", Decimal("0.80000001"), True),
+        ("quantity", Decimal("0.800000011"), False),
+        ("entry_fee", Decimal("0.40000001"), True),
+        ("entry_fee", Decimal("0.400000011"), False),
+        ("entry_price", Decimal("100.000000001"), False),
+        ("exit_price", Decimal("101.000000001"), False),
+        ("entry_gross_stake", Decimal("80.000000001"), False),
+        ("exit_reason", "stop_loss", False),
+    ],
+)
+def test_lifecycle_comparison_tolerates_only_export_derived_values(
+    field: str, value: object, passes: bool
+) -> None:
+    native = _trade()
+    adapter = _trade(**{field: value})
+    if passes:
+        assert_lifecycle_equivalent([native], [adapter])
+    else:
+        with pytest.raises(AssertionError):
+            assert_lifecycle_equivalent([native], [adapter])

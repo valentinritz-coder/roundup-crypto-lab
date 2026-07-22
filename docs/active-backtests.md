@@ -41,8 +41,11 @@ Native `open_date`, `close_date`, `open_rate`, `close_rate`, `stake_amount`, `am
 `fee_open`, `fee_close`, and `exit_reason` normalize respectively to adapter entry/exit timestamps,
 prices, gross stake, quantity, fees, and reason. Native stake excludes entry fee, as does the
 adapter stake; both wallets debit stake plus the entry fee. `trailing_stop_loss` is normalized to
-`stop_loss`. The only tolerance is `1e-8` for native exported amount precision and its directly
-derived monetary values; all timestamps, reasons, and all other differences fail.
+`stop_loss`. Timestamps, prices, gross stake, and exit reasons compare exactly. The only tolerance
+is `1e-8` for native exported quantity and its directly derived entry/exit fees. The native reasons
+accepted by this scope are only `exit_signal`, the repository strategy's `close_below_sma20` exit
+tag, `stop_loss`, and `trailing_stop_loss`; `close_below_sma20` normalizes to `exit_signal` and the
+latter normalizes to `stop_loss`, while every other native reason fails validation.
 
 The differential proof is only for `one_shot_capital`. Native Freqtrade has no equivalent for the
 adapter's investor contribution ledger; recurring mode remains separately tested with the real
