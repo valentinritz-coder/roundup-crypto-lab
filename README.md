@@ -103,7 +103,7 @@ separate deterministic Python engine, not Freqtrade strategies: purchases use th
 candle open at or after `00:00 UTC`, fees apply to each buy, and there is no simulated sale.
 Daily and weekly contributions are independent external cash flows and their drawdown uses a
 contribution-neutral time-weighted equity curve. Run **Actions → Passive benchmarks** after
-**Update Kraken data**, or use `python -m scripts.passive_benchmarks`. See
+**Update Kraken data**, or use `python -m roundup_crypto_lab.passive_benchmarks`. See
 [`docs/passive-benchmarks.md`](docs/passive-benchmarks.md) for the exact conventions, outputs,
 limitations, and the warning that benchmarks do not establish future profitability.
 

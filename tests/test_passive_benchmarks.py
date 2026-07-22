@@ -4,7 +4,7 @@ from decimal import Decimal
 import pandas as pd
 import pytest
 
-from scripts.passive_benchmarks import buy_and_hold, dca, parse_timerange
+from roundup_crypto_lab.passive_benchmarks import buy_and_hold, dca, parse_timerange
 
 
 def candles(rows):

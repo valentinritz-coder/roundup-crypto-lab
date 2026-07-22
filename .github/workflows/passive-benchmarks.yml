@@ -29,12 +29,12 @@ jobs:
         run: |
           test "$TIMEFRAME" = 4h
           test '${{ steps.restore-kraken.outputs.cache-hit }}' != '' || { echo 'No Kraken cache was restored: run Update Kraken data first.'; exit 1; }
-          python -c 'from scripts.passive_benchmarks import parse_timerange; parse_timerange("'"$TIMERANGE"'")'
+          python -c 'from roundup_crypto_lab.passive_benchmarks import parse_timerange; parse_timerange("'"$TIMERANGE"'")'
           mkdir -p artifacts/benchmarks artifacts/logs
       - name: Run passive benchmarks
         env: {TIMERANGE: '${{ inputs.timerange }}', INITIAL_CAPITAL: '${{ inputs.initial_capital }}', DAILY_CONTRIBUTION: '${{ inputs.daily_contribution }}', WEEKLY_CONTRIBUTION: '${{ inputs.weekly_contribution }}', FEE: '${{ inputs.fee }}'}
         run: |
-          python -m scripts.passive_benchmarks --data-dir user_data/data/kraken --pairs BTC/EUR ETH/EUR --timeframe 4h --timerange "$TIMERANGE" --initial-capital "$INITIAL_CAPITAL" --daily-contribution "$DAILY_CONTRIBUTION" --weekly-contribution "$WEEKLY_CONTRIBUTION" --weekly-day monday --fee "$FEE" --output-json artifacts/benchmarks/passive-benchmarks.json --output-dir artifacts/benchmarks |& tee artifacts/logs/passive-benchmarks.txt
+          python -m roundup_crypto_lab.passive_benchmarks --data-dir user_data/data/kraken --pairs BTC/EUR ETH/EUR --timeframe 4h --timerange "$TIMERANGE" --initial-capital "$INITIAL_CAPITAL" --daily-contribution "$DAILY_CONTRIBUTION" --weekly-contribution "$WEEKLY_CONTRIBUTION" --weekly-day monday --fee "$FEE" --output-json artifacts/benchmarks/passive-benchmarks.json --output-dir artifacts/benchmarks |& tee artifacts/logs/passive-benchmarks.txt
           python -c 'import json; json.load(open("artifacts/benchmarks/passive-benchmarks.json"))'
       - name: Write Job Summary
         env: {TIMERANGE: '${{ inputs.timerange }}', INITIAL_CAPITAL: '${{ inputs.initial_capital }}', DAILY_CONTRIBUTION: '${{ inputs.daily_contribution }}', WEEKLY_CONTRIBUTION: '${{ inputs.weekly_contribution }}', FEE: '${{ inputs.fee }}'}

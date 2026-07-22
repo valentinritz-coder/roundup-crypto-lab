@@ -42,7 +42,7 @@ headline DCA drawdown because deposits can distort it.
 ## Local use and outputs
 
 ```bash
-python -m scripts.passive_benchmarks \
+python -m roundup_crypto_lab.passive_benchmarks \
   --timerange 20260123-20260722 \
   --output-json artifacts/benchmarks/passive-benchmarks.json \
   --output-dir artifacts/benchmarks
