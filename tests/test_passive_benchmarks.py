@@ -27,89 +27,11 @@ def write_candles(tmp_path, frame: pd.DataFrame, pair: str = "BTC/EUR") -> None:
     frame.to_feather(tmp_path / f"{pair.replace('/', '_')}-4h.feather")
 
 
-def test_buy_and_hold_uses_first_open_applies_fee_and_drawdown() -> None:
-    frame = candles(
-        [
-            (datetime(2026, 1, 1, tzinfo=UTC), 10, 11, 9, 10, 1),
-            (datetime(2026, 1, 1, 4, tzinfo=UTC), 8, 9, 7, 8, 1),
-            (datetime(2026, 1, 1, 8, tzinfo=UTC), 12, 13, 11, 12, 1),
-        ]
-    )
-    result = buy_and_hold(frame, "BTC/EUR", Decimal("100"), Decimal("0.1"))
-    assert result["quantity"] == 9.0
-    assert result["fees_paid"] == 10.0
-    assert result["final_value"] == 108.0
-    assert result["profit_total"] == 0.08
-    assert result["max_drawdown"] == 0.2
-
-
-def test_daily_dca_defers_to_first_available_candle_and_has_one_buy_per_day() -> None:
-    frame = candles(
-        [
-            (datetime(2026, 1, 1, 4, tzinfo=UTC), 10, 11, 9, 10, 1),
-            (datetime(2026, 1, 1, 8, tzinfo=UTC), 10, 11, 9, 10, 1),
-            (datetime(2026, 1, 2, 4, tzinfo=UTC), 20, 21, 19, 20, 1),
-        ]
-    )
-    result = dca(frame, "BTC/EUR", Decimal("100"), Decimal("0.1"))
-    assert result["number_of_buys"] == 2
-    assert [row["executed_at"] for row in result["purchases"]] == [
-        "2026-01-01T04:00:00+00:00",
-        "2026-01-02T04:00:00+00:00",
-    ]
-    assert result["fees_paid"] == 20.0
-    assert result["quantity"] == 13.5
-    assert result["average_entry_price"] == pytest.approx(14.8148148148)
-    assert result["total_contributions"] == 200.0
-    assert result["final_value"] == 270.0
-    assert result["profit_total"] == 0.35
-    assert result["max_drawdown_time_weighted"] == 0.0
-    assert result["max_drawdown"] == result["max_drawdown_time_weighted"]
-
-
-def test_dca_fee_uses_net_contribution_for_time_weighted_shares_on_flat_market() -> None:
-    frame = candles(
-        [
-            (datetime(2026, 1, 1, tzinfo=UTC), 100, 100, 100, 100, 0),
-            (datetime(2026, 1, 2, tzinfo=UTC), 100, 100, 100, 100, 0),
-        ]
-    )
-    result = dca(frame, "BTC/EUR", Decimal("100"), Decimal("0.1"))
-    assert [purchase["net_contribution"] for purchase in result["purchases"]] == [90.0, 90.0]
-    assert [row["time_weighted_share_value"] for row in result["equity_curve"]] == [1.0, 1.0]
-    assert result["max_drawdown_time_weighted"] == 0.0
-    assert result["max_drawdown"] == 0.0
-    assert result["max_drawdown_raw_portfolio"] == 0.0
-    assert result["profit_total"] == -0.1
-
-
-def test_weekly_dca_only_buys_requested_weekday_across_year_boundary() -> None:
-    frame = candles(
-        [
-            (datetime(2025, 12, 29, 4, tzinfo=UTC), 10, 10, 10, 10, 0),  # Monday
-            (datetime(2026, 1, 1, 4, tzinfo=UTC), 11, 11, 11, 11, 0),
-            (datetime(2026, 1, 5, 4, tzinfo=UTC), 12, 12, 12, 12, 0),  # Monday
-        ]
-    )
-    result = dca(frame, "ETH/EUR", Decimal("10"), Decimal("0"), weekly_day=0)
-    assert result["number_of_buys"] == 2
-    assert [row["scheduled_at"][:10] for row in result["purchases"]] == ["2025-12-29", "2026-01-05"]
-
-
-def test_future_candles_do_not_change_prior_purchase_or_equity() -> None:
-    prefix = candles(
-        [
-            (datetime(2026, 1, 1, tzinfo=UTC), 10, 10, 10, 10, 0),
-            (datetime(2026, 1, 2, tzinfo=UTC), 20, 20, 20, 20, 0),
-        ]
-    )
-    extended = pd.concat(
-        [prefix, candles([(datetime(2026, 1, 3, tzinfo=UTC), 5, 5, 5, 5, 0)])], ignore_index=True
-    )
-    before = dca(prefix, "BTC/EUR", Decimal("10"), Decimal("0"))
-    after = dca(extended, "BTC/EUR", Decimal("10"), Decimal("0"))
-    assert after["purchases"][:2] == before["purchases"]
-    assert after["equity_curve"][:2] == before["equity_curve"]
+def test_legacy_independent_budget_functions_fail_with_migration_message() -> None:
+    with pytest.raises(ValueError, match="shared InvestmentPlan"):
+        buy_and_hold()
+    with pytest.raises(ValueError, match="monthly-budget"):
+        dca()
 
 
 def test_timerange_is_strict() -> None:
@@ -154,27 +76,12 @@ def test_candles_without_gap_in_timerange_work_and_report_coverage(tmp_path) -> 
     }
 
 
-def test_one_missing_candle_is_tolerated_and_purchase_is_deferred(tmp_path) -> None:
+def test_one_missing_candle_is_tolerated(tmp_path) -> None:
     complete = prepared_candles(
         datetime(2026, 1, 1, tzinfo=UTC), datetime(2026, 1, 1, 20, tzinfo=UTC)
     )
     write_candles(tmp_path, complete[complete["date"] != datetime(2026, 1, 1, 8, tzinfo=UTC)])
-
-    loaded = load_kraken_candles(tmp_path, "BTC/EUR", "4h", "20260101-20260102")
-
-    assert len(loaded) == 5
-
-    frame = candles(
-        [
-            (datetime(2026, 1, 1, 4, tzinfo=UTC), 10, 10, 10, 10, 1),
-            (datetime(2026, 1, 1, 12, tzinfo=UTC), 20, 20, 20, 20, 1),
-        ]
-    )
-
-    result = dca(frame, "BTC/EUR", Decimal("10"), Decimal("0"))
-
-    assert result["purchases"][0]["scheduled_at"] == "2026-01-01T00:00:00+00:00"
-    assert result["purchases"][0]["executed_at"] == "2026-01-01T04:00:00+00:00"
+    assert len(load_kraken_candles(tmp_path, "BTC/EUR", "4h", "20260101-20260102")) == 5
 
 
 def test_two_consecutive_missing_candles_raise_descriptive_error(tmp_path) -> None:
@@ -211,3 +118,186 @@ def test_loader_excludes_future_candles_to_prevent_lookahead(tmp_path) -> None:
     loaded = load_kraken_candles(tmp_path, "BTC/EUR", "4h", "20260101-20260102")
 
     assert loaded["date"].max() == pd.Timestamp("2026-01-01T20:00:00Z")
+
+
+def test_all_deployments_receive_exact_same_plan_cashflows_and_keep_execution_separate(
+    tmp_path,
+) -> None:
+    frame = prepared_candles(
+        datetime(2026, 1, 20, tzinfo=UTC), datetime(2026, 2, 4, 20, tzinfo=UTC)
+    )
+    frame = frame[frame["date"] != datetime(2026, 1, 23, tzinfo=UTC)]
+    write_candles(tmp_path, frame)
+
+    result = run_passive_benchmarks(
+        tmp_path, ["BTC/EUR"], "4h", "20260120-20260205", "200", "40", "0", 23
+    )
+
+    assert result["metadata"]["total_contributions"] == 240.0
+    assert [event["contributed_at"] for event in result["metadata"]["contribution_schedule"]] == [
+        "2026-01-20T00:00:00+00:00",
+        "2026-01-23T00:00:00+00:00",
+    ]
+    assert {row["total_contributions"] for row in result["benchmarks"]} == {240.0}
+    assert {row["deployment_method"] for row in result["benchmarks"]} == {
+        "immediate",
+        "daily_dca",
+        "weekly_dca",
+    }
+    immediate = next(row for row in result["benchmarks"] if row["deployment_method"] == "immediate")
+    assert immediate["purchases"][1]["contributed_at"] == "2026-01-23T00:00:00+00:00"
+    assert immediate["purchases"][1]["executed_at"] == "2026-01-23T04:00:00+00:00"
+    assert immediate["contribution_schedule"] == result["metadata"]["contribution_schedule"]
+
+
+def test_cli_rejects_removed_independent_contribution_options(monkeypatch, tmp_path) -> None:
+    from roundup_crypto_lab import passive_benchmarks
+
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "passive_benchmarks",
+            "--timerange",
+            "20260101-20260102",
+            "--output-json",
+            str(tmp_path / "result.json"),
+            "--daily-contribution",
+            "10",
+        ],
+    )
+    with pytest.raises(SystemExit, match="2"):
+        passive_benchmarks.main()
+
+
+def test_daily_dca_credits_full_contribution_before_progressive_investment(tmp_path) -> None:
+    write_candles(
+        tmp_path,
+        prepared_candles(datetime(2026, 1, 20, tzinfo=UTC), datetime(2026, 1, 22, 20, tzinfo=UTC)),
+    )
+    result = run_passive_benchmarks(
+        tmp_path, ["BTC/EUR"], "4h", "20260120-20260123", "200", "40", "0", 23
+    )
+    daily = next(row for row in result["benchmarks"] if row["deployment_method"] == "daily_dca")
+    first = daily["equity_curve"][0]
+    assert first["cumulative_contributions"] == 200.0
+    assert 0 < first["capital_invested"] < 200.0
+    assert first["cash_balance"] > 0
+    assert first["portfolio_value"] == 200.0
+    assert first["net_value"] == 0.0
+    assert daily["max_drawdown_time_weighted"] == 0.0
+
+
+def test_daily_dca_charges_fee_only_on_executed_crypto_purchase(tmp_path) -> None:
+    write_candles(
+        tmp_path,
+        prepared_candles(datetime(2026, 1, 20, tzinfo=UTC), datetime(2026, 1, 21, 20, tzinfo=UTC)),
+    )
+    result = run_passive_benchmarks(
+        tmp_path, ["BTC/EUR"], "4h", "20260120-20260122", "200", "40", "0.1", 23
+    )
+    daily = next(row for row in result["benchmarks"] if row["deployment_method"] == "daily_dca")
+    first = daily["equity_curve"][0]
+    assert first["portfolio_value"] == 190.0
+    assert first["cumulative_fees_paid"] == 10.0
+    assert first["cash_balance"] == 100.0
+
+
+def test_weekly_dca_keeps_cash_when_no_deployment_day_is_available(tmp_path) -> None:
+    write_candles(
+        tmp_path,
+        prepared_candles(datetime(2026, 1, 2, tzinfo=UTC), datetime(2026, 1, 2, 20, tzinfo=UTC)),
+    )
+    result = run_passive_benchmarks(
+        tmp_path, ["BTC/EUR"], "4h", "20260102-20260103", "200", "40", "0", 23
+    )
+    weekly = next(row for row in result["benchmarks"] if row["deployment_method"] == "weekly_dca")
+    assert weekly["number_of_buys"] == 0
+    assert weekly["capital_invested"] == 0.0
+    assert weekly["cash_balance"] == weekly["total_contributions"] == 200.0
+    assert weekly["final_value"] == 200.0
+
+
+def test_same_timestamp_credits_all_cashflows_before_immediate_purchase(tmp_path) -> None:
+    write_candles(
+        tmp_path,
+        prepared_candles(datetime(2026, 1, 23, tzinfo=UTC), datetime(2026, 1, 23, 20, tzinfo=UTC)),
+    )
+    result = run_passive_benchmarks(
+        tmp_path, ["BTC/EUR"], "4h", "20260123-20260124", "200", "40", "0", 23
+    )
+    immediate = next(row for row in result["benchmarks"] if row["deployment_method"] == "immediate")
+    first = immediate["equity_curve"][0]
+    assert first["cumulative_contributions"] == 240.0
+    assert first["capital_invested"] == 240.0
+    assert first["cash_balance"] == 0.0
+    assert first["portfolio_value"] == 240.0
+
+
+@pytest.mark.parametrize("option", ["--daily-contribution=10", "--weekly-contribution=10"])
+def test_cli_rejects_equals_form_of_removed_contribution_options(
+    monkeypatch, tmp_path, option
+) -> None:
+    from roundup_crypto_lab import passive_benchmarks
+
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "passive_benchmarks",
+            "--timerange",
+            "20260101-20260102",
+            "--output-json",
+            str(tmp_path / "x.json"),
+            option,
+        ],
+    )
+    with pytest.raises(SystemExit, match="2"):
+        passive_benchmarks.main()
+
+
+def test_daily_dca_deploys_full_same_timestamp_bucket(tmp_path) -> None:
+    write_candles(
+        tmp_path,
+        prepared_candles(datetime(2026, 1, 23, tzinfo=UTC), datetime(2026, 1, 25, 20, tzinfo=UTC)),
+    )
+    result = run_passive_benchmarks(
+        tmp_path, ["BTC/EUR"], "4h", "20260123-20260126", "200", "40", "0", 23
+    )
+    daily = next(row for row in result["benchmarks"] if row["deployment_method"] == "daily_dca")
+    assert daily["total_contributions"] == daily["capital_invested"] == 240.0
+    assert daily["cash_balance"] == 0.0
+    assert daily["number_of_buys"] == 3
+    first = daily["equity_curve"][0]
+    assert first["cumulative_contributions"] == 240.0
+    assert first["capital_invested"] == 80.0
+    assert first["cash_balance"] == 160.0
+    assert first["portfolio_value"] == 240.0
+    assert first["net_value"] == 0.0
+
+
+def test_weekly_dca_deploys_full_same_timestamp_bucket(tmp_path) -> None:
+    write_candles(
+        tmp_path,
+        prepared_candles(datetime(2026, 2, 23, tzinfo=UTC), datetime(2026, 3, 9, 20, tzinfo=UTC)),
+    )
+    result = run_passive_benchmarks(
+        tmp_path, ["BTC/EUR"], "4h", "20260223-20260310", "200", "40", "0", 23, "monday"
+    )
+    weekly = next(row for row in result["benchmarks"] if row["deployment_method"] == "weekly_dca")
+    assert weekly["total_contributions"] == weekly["capital_invested"] == 240.0
+    assert weekly["cash_balance"] == 0.0
+    assert weekly["number_of_buys"] == 3
+    assert [purchase["gross_contribution"] for purchase in weekly["purchases"]] == [
+        80.0,
+        80.0,
+        80.0,
+    ]
+
+
+def test_deployment_buckets_are_deterministic_when_same_timestamp_event_order_changes() -> None:
+    from roundup_crypto_lab.investment_plan import CashFlowEvent
+    from roundup_crypto_lab.passive_benchmarks import deployment_buckets
+
+    timestamp = datetime(2026, 1, 23, tzinfo=UTC)
+    initial = CashFlowEvent(timestamp, Decimal("200"), "initial")
+    monthly = CashFlowEvent(timestamp, Decimal("40"), "monthly")
+    assert deployment_buckets((initial, monthly)) == deployment_buckets((monthly, initial))
