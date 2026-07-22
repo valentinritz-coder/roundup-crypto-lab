@@ -44,15 +44,14 @@ total equity, cumulative contributions, and
 for contribution-neutral performance and drawdown analysis. All money is represented by `Decimal`
 inside the adapter.
 
-The **All strategy comparison** workflow accepts `capital_mode`, `initial_capital`,
-`monthly_budget`, and `contribution_day`; it emits one JSON artifact per active strategy under
-`artifacts/results/active/`. Each contains the plan, schedule, contribution ledger, trade ledger,
-and equity curve. Both funding modes use the same plan definition as passive methods.
+The adapter is currently available through its Python API and CLI only. It is not yet part of the
+controlled All strategy comparison workflow, because its results are not yet lifecycle-equivalent
+to native Freqtrade results or included in the comparison schema.
 
 This adapter is intentionally not a multi-asset allocator and does not replace native Freqtrade
-reporting. It reproduces the strategy's indicator/signal methods, next-open signal execution,
-one-position limit, configured fee, and `tradable_balance_ratio` stake sizing. It does **not** yet
-reproduce native limit-order fill modelling, intrabar/custom stop-loss behaviour, ROI exits, or
-native order timeouts; recurring artifacts must not be represented as byte-for-byte native
-Freqtrade-equivalent results. Native CLI backtests remain the one-shot reference until Freqtrade
-exposes historical wallet deposits through a public interface.
+reporting. It supports only signal-driven, next-open entries and full exits, one-position limit,
+configured fee, and `tradable_balance_ratio` stake sizing. It does **not** model fixed or custom
+stop-loss execution, ATR stop updates, intrabar ordering, limit-order fills, ROI exits, order
+timeouts, the native Freqtrade lifecycle, multi-asset allocation, or combined active/passive
+reporting. Native CLI backtests remain the authoritative one-shot reference. Full issue #18
+therefore remains open for lifecycle and reporting follow-up work.

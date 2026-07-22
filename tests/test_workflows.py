@@ -185,10 +185,6 @@ def test_all_strategy_comparison_workflow_contract() -> None:
     assert 'mv "${zips[0]}" "artifacts/results/$result_name.zip"' in backtests
     assert "-name 'backtest-result-*.meta.json' -delete" in backtests
     assert "GITHUB_STEP_SUMMARY" in workflow and "if: always()" in workflow
-    for name in ("capital_mode", "initial_capital", "monthly_budget", "contribution_day"):
-        assert f"{name}:" in workflow
-    assert "roundup_crypto_lab.freqtrade_active" in workflow
-    assert "artifacts/results/active/$strategy.json" in workflow
 
 
 def test_passive_benchmarks_workflow_contract() -> None:

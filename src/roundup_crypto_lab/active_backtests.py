@@ -38,17 +38,13 @@ class Candle:
 
     timestamp: datetime
     open: Decimal
-    high: Decimal
-    low: Decimal
     close: Decimal
 
     def __post_init__(self) -> None:
         if self.timestamp.tzinfo is None:
             raise ValueError("candle timestamp must be timezone-aware")
-        if self.open <= 0 or self.high <= 0 or self.low <= 0 or self.close <= 0:
+        if self.open <= 0 or self.close <= 0:
             raise ValueError("candle prices must be positive")
-        if not self.low <= min(self.open, self.close) <= max(self.open, self.close) <= self.high:
-            raise ValueError("candle OHLC prices are inconsistent")
 
 
 @dataclass(frozen=True)
@@ -108,7 +104,6 @@ def run_active_backtest(
     decide: DecisionProvider,
     *,
     mode: CapitalMode = CapitalMode.RECURRING_MONTHLY_CONTRIBUTIONS,
-    fixed_stoploss: Decimal | None = None,
 ) -> dict[str, object]:
     """Run deterministic spot accounting around causal strategy decisions.
 
@@ -136,11 +131,7 @@ def run_active_backtest(
 
     events = _events(plan, start, end, mode)
     event_index = 0
-    if fixed_stoploss is not None and not Decimal("-1") < fixed_stoploss < Decimal("0"):
-        raise ValueError("fixed stoploss must be between -1 and 0")
     cash = quantity = contributed = current_deployed = cumulative_deployed = fees = Decimal("0")
-    entry_timestamp: datetime | None = None
-    active_stop: Decimal | None = None
     shares = Decimal("0")
     share_value = Decimal("1")
     contributions: list[dict[str, object]] = []
@@ -170,28 +161,6 @@ def run_active_backtest(
             )
             event_index += 1
 
-        # Stops precede shifted signal exits. An opening gap fills at open;
-        # otherwise the intrabar low fills exactly at the active stop.
-        if quantity and active_stop is not None and candle.low <= active_stop:
-            exit_price = candle.open if candle.open <= active_stop else active_stop
-            gross = quantity * exit_price
-            fee = gross * plan.fee_ratio
-            cash += gross - fee
-            fees += fee
-            trades.append(
-                {
-                    "timestamp": timestamp.isoformat(),
-                    "side": "sell",
-                    "gross_stake": gross,
-                    "price": exit_price,
-                    "fee_paid": fee,
-                    "quantity": quantity,
-                    "exit_reason": "fixed_stoploss",
-                    "entry_timestamp": entry_timestamp.isoformat() if entry_timestamp else None,
-                }
-            )
-            quantity = current_deployed = Decimal("0")
-            active_stop = None
         state = WalletState(timestamp, cash, quantity, quantity > 0)
         decision = decide(state)
         if not isinstance(decision, StrategyDecision):
@@ -206,8 +175,6 @@ def run_active_backtest(
             quantity = (gross - fee) / candle.open
             cash -= gross
             current_deployed = gross
-            entry_timestamp = timestamp
-            active_stop = candle.open * (Decimal("1") + fixed_stoploss) if fixed_stoploss else None
             cumulative_deployed += gross
             fees += fee
             trades.append(
@@ -218,7 +185,6 @@ def run_active_backtest(
                     "price": candle.open,
                     "fee_paid": fee,
                     "quantity": quantity,
-                    "trade_id": entry_timestamp.isoformat(),
                 }
             )
         elif decision.action is Action.SELL:
@@ -236,13 +202,10 @@ def run_active_backtest(
                     "price": candle.open,
                     "fee_paid": fee,
                     "quantity": quantity,
-                    "exit_reason": "exit_signal",
-                    "entry_timestamp": entry_timestamp.isoformat() if entry_timestamp else None,
                 }
             )
             quantity = Decimal("0")
             current_deployed = Decimal("0")
-            active_stop = None
         elif decision.action is not Action.HOLD:
             raise ValueError("unknown strategy action")
 
@@ -257,7 +220,6 @@ def run_active_backtest(
                 "current_deployed_capital": current_deployed,
                 "cumulative_gross_deployed": cumulative_deployed,
                 "crypto_value": crypto_value,
-                "active_stop_price": active_stop,
                 "equity": equity,
                 "cumulative_contributions": contributed,
                 "investment_return": equity - contributed,
@@ -288,7 +250,6 @@ def run_active_backtest(
         "final_equity": final_equity,
         "investment_return": final_equity - contributed,
         "fees_paid": fees,
-        "open_position": bool(quantity),
         "contribution_neutral_return": share_value - Decimal("1"),
         "contribution_neutral_max_drawdown": _maximum_drawdown(share_values),
     }
