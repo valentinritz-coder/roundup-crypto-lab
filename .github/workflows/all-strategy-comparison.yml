@@ -85,6 +85,7 @@ jobs:
           if [ "$CAPITAL_MODE" = one_shot_capital ]; then differential_arg=(--one-shot-differential artifacts/results/one-shot-differential.json); fi
           python -m roundup_crypto_lab.active_comparison --native-comparison artifacts/results/all-strategies-comparison.json --metadata artifacts/results/metadata.json --active-result artifacts/results/active-RoundupBreakoutStrategy.json --active-result artifacts/results/active-RoundupBreakoutTrendStrategy.json --active-result artifacts/results/active-RoundupBreakoutAtrStrategy.json --active-result artifacts/results/active-RoundupBreakoutAtrVolumeStrategy.json --active-result artifacts/results/active-RoundupTrendPullbackStrategy.json --active-result artifacts/results/active-RoundupConfirmedBreakoutStrategy.json --active-result artifacts/results/active-RoundupVolatilitySqueezeStrategy.json --output artifacts/results/controlled-comparison.json --summary artifacts/results/job-summary.md "${differential_arg[@]}"
           cat artifacts/results/job-summary.md >> "$GITHUB_STEP_SUMMARY"
+      # Previous success-only policy was `if: success()`; diagnostics must survive failures.
       - if: always()
         uses: actions/upload-artifact@v4
         with:
