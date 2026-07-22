@@ -122,6 +122,16 @@ Every passive method receives one shared investment plan: initial capital and th
 [`docs/passive-benchmarks.md`](docs/passive-benchmarks.md) for the exact conventions, outputs,
 limitations, and the warning that benchmarks do not establish future profitability.
 
+## Active strategy cash flows
+
+Recurring investor contributions for active strategy research use the same shared investment plan
+as passive benchmarks. Because Freqtrade's public historical-backtest interface has a starting
+wallet but no timestamped wallet-deposit operation, the lab provides a repository-owned,
+single-position accounting adapter rather than changing Freqtrade internals. It records each cash
+flow separately from trades and reports contribution-neutral equity; the existing Freqtrade CLI
+backtests remain available in one-shot-capital mode. See
+[`docs/active-backtests.md`](docs/active-backtests.md) for the adapter contract and limitations.
+
 ## Breakout strategy experiments
 
 The unchanged `RoundupBreakoutStrategy` is the comparison baseline. Experimental variants add a

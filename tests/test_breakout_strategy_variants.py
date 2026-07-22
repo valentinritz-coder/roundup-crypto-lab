@@ -7,6 +7,10 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
+from roundup_crypto_lab.active_backtests import CapitalMode
+from roundup_crypto_lab.freqtrade_active import run_freqtrade_strategy, validate_pair_data_file
+from roundup_crypto_lab.investment_plan import InvestmentPlan
+
 STRATEGIES_DIR = Path("user_data/strategies").resolve()
 STRATEGY_NAMES = (
     "RoundupBreakoutStrategy",
@@ -116,3 +120,60 @@ def test_strategy_sources_do_not_reference_future_candles() -> None:
                 and isinstance(node.args[0].op, ast.USub)
             ):
                 pytest.fail(f"Negative shift in {path}")
+
+
+def test_real_baseline_strategy_runs_through_recurring_cash_flow_bridge() -> None:
+    rows = 130
+    frame = candles()
+    frame.insert(0, "date", pd.date_range("2026-01-01", periods=rows, freq="4h", tz="UTC"))
+    # The final completed candle creates an entry signal.  It can only execute
+    # at a later open, so this fixture proves no same-open use of its close.
+    frame.loc[125, ["close", "high"]] = (1_000, 1_001)
+    result = run_freqtrade_strategy(
+        frame,
+        InvestmentPlan("100", "40", "0", 15),
+        "RoundupBreakoutStrategy",
+        STRATEGIES_DIR,
+        frame.iloc[120]["date"].to_pydatetime(),
+        (frame.iloc[-1]["date"] + pd.Timedelta(hours=4)).to_pydatetime(),
+        mode=CapitalMode.RECURRING_MONTHLY_CONTRIBUTIONS,
+    )
+    assert result["strategy"] == "RoundupBreakoutStrategy"
+    assert result["signal_execution"] == "completed candle N signals execute at candle N+1 open"
+    assert "contribution_ledger" in result and "equity_curve" in result
+    start = frame.iloc[120]["date"]
+    assert all(pd.Timestamp(row["timestamp"]) >= start for row in result["trades"])
+    assert all(pd.Timestamp(row["timestamp"]) >= start for row in result["equity_curve"])
+    assert all(pd.Timestamp(row["credited_at"]) >= start for row in result["contribution_ledger"])
+
+
+def test_real_strategy_bridge_rejects_insufficient_warmup_history() -> None:
+    frame = candles().iloc[:120].copy()
+    frame.insert(0, "date", pd.date_range("2026-01-01", periods=len(frame), freq="4h", tz="UTC"))
+    with pytest.raises(ValueError, match="insufficient warm-up history: need 120 candles"):
+        run_freqtrade_strategy(
+            frame,
+            InvestmentPlan("100", "40", "0", 15),
+            "RoundupBreakoutStrategy",
+            STRATEGIES_DIR,
+            frame.iloc[119]["date"].to_pydatetime(),
+            (frame.iloc[-1]["date"] + pd.Timedelta(hours=4)).to_pydatetime(),
+            mode=CapitalMode.ONE_SHOT_CAPITAL,
+        )
+
+
+@pytest.mark.parametrize(
+    ("pair", "filename", "valid"),
+    [
+        ("BTC/EUR", "BTC_EUR-4h.feather", True),
+        ("ETH/EUR", "ETH_EUR-4h.feather", True),
+        ("BTC/EUR", "ETH_EUR-4h.feather", False),
+        ("ETH/EUR", "BTC_EUR-4h.feather", False),
+    ],
+)
+def test_pair_data_file_mapping(pair: str, filename: str, valid: bool) -> None:
+    if valid:
+        validate_pair_data_file(pair, Path(filename))
+    else:
+        with pytest.raises(ValueError, match="data file must be"):
+            validate_pair_data_file(pair, Path(filename))
