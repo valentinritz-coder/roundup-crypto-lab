@@ -44,7 +44,10 @@ def test_combine_preserves_failed_diagnostics(tmp_path: Path) -> None:
     for index, strategy in enumerate(STRATEGY_ORDER):
         document = _document(strategy, "failed" if index == 0 else "passed")
         if index == 0:
-            document["strategies"][0]["diagnostics"] = {"native_trade_count": 25, "adapter_trade_count": 19}
+            document["strategies"][0]["diagnostics"] = {
+                "native_trade_count": 25,
+                "adapter_trade_count": 19,
+            }
         path = tmp_path / f"{index}.json"
         path.write_text(json.dumps(document), encoding="utf-8")
         paths.append(path)
