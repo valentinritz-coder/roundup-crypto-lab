@@ -94,9 +94,7 @@ def main() -> None:
     results = [json.loads(path.read_text(encoding="utf-8")) for path in args.active_result]
     experiment = validate_result_set(results)
     native = validate_comparison(args.native_comparison)
-    metadata = _mapping(
-        json.loads(args.metadata.read_text(encoding="utf-8")), "native metadata"
-    )
+    metadata = _mapping(json.loads(args.metadata.read_text(encoding="utf-8")), "native metadata")
     validate_native_metadata(metadata, experiment)
 
     differential: dict[str, Any] | None = None

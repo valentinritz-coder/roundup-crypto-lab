@@ -64,9 +64,7 @@ def build_active_result(
             "exit_count": sum(exits.values()),
             "exit_reason_counts": exits,
             "contribution_neutral_return": result["contribution_neutral_return"],
-            "contribution_neutral_max_drawdown": result[
-                "contribution_neutral_max_drawdown"
-            ],
+            "contribution_neutral_max_drawdown": result["contribution_neutral_max_drawdown"],
             "open_position_state": result["end_of_range_position"],
         },
         "contribution_schedule": result["contribution_schedule"],

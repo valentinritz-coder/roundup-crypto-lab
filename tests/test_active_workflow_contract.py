@@ -2,7 +2,6 @@ from pathlib import Path
 
 import yaml
 
-
 WORKFLOW = Path(".github/workflows/all-strategy-comparison.yml")
 STRATEGIES = (
     "RoundupBreakoutStrategy",
@@ -53,7 +52,7 @@ def test_all_strategy_workflow_executes_and_consumes_effective_arguments() -> No
         assert f"differential-{strategy}.json" in command
 
     report = by_name["Generate, validate, and summarize comparison"]["run"]
-    assert "--config-digest \"$CONFIG_DIGEST\"" in report
+    assert '--config-digest "$CONFIG_DIGEST"' in report
     assert "--one-shot-differential artifacts/results/one-shot-differential.json" in report
     for strategy in STRATEGIES:
         assert f"--active-result artifacts/results/active-{strategy}.json" in report

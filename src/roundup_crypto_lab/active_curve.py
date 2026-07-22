@@ -58,9 +58,7 @@ def _validate_curve(
         if cumulative_gross != expected_gross:
             raise ValueError("curve gross deployment differs from trade ledger")
         open_at_timestamp = [
-            trade
-            for trade in entered
-            if trade["_exit_at"] is None or trade["_exit_at"] > timestamp
+            trade for trade in entered if trade["_exit_at"] is None or trade["_exit_at"] > timestamp
         ]
         if len(open_at_timestamp) > 1:
             raise ValueError("equity curve implies overlapping positions")
@@ -69,13 +67,10 @@ def _validate_curve(
             if current_deployed != open_trade["_stake"]:
                 raise ValueError("curve deployed capital differs from open trade")
             if crypto_value != open_trade["_quantity"] * mark_price:
-                raise ValueError("curve crypto value differs from open quantity")
+                raise ValueError(curve crypto value differs from open quantity)
         elif current_deployed != 0 or crypto_value != 0:
             raise ValueError("closed curve row retains deployed capital or crypto")
-        if (
-            cumulative_contributions < previous_contributions
-            or cumulative_gross < previous_gross
-        ):
+        if cumulative_contributions < previous_contributions or cumulative_gross < previous_gross:
             raise ValueError("cumulative curve fields decreased")
         previous_time = timestamp
         previous_contributions = cumulative_contributions

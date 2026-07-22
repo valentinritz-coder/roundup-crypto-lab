@@ -103,9 +103,7 @@ def native(zip_path: Path, strategy: str) -> dict[str, object]:
     }
 
 
-def compare_one(
-    native_zip: Path, active_path: Path, strategy: str
-) -> dict[str, object]:
+def compare_one(native_zip: Path, active_path: Path, strategy: str) -> dict[str, object]:
     """Run one strict differential and return its machine-readable result."""
     active = json.loads(active_path.read_text(encoding="utf-8"))
     if not isinstance(active, dict):
