@@ -23,7 +23,7 @@ def plan() -> InvestmentPlan:
 
 def candle(day: int, price: str = "100") -> Candle:
     value = Decimal(price)
-    return Candle(at(day), value, value)
+    return Candle(at(day), value, value, value, value)
 
 
 def test_no_trade_cash_equals_contributions_and_return_is_zero() -> None:
@@ -65,6 +65,7 @@ def test_buy_once_leaves_later_contribution_as_cash() -> None:
             "price": Decimal("100"),
             "fee_paid": Decimal("0"),
             "quantity": Decimal("1"),
+            "trade_id": "2026-01-01T00:00:00+00:00",
         }
     ]
 
@@ -125,7 +126,16 @@ def test_one_shot_mode_keeps_existing_one_shot_semantics() -> None:
 def test_end_exclusive_timerange_rejects_end_candle_and_never_credits_its_cashflow() -> None:
     with pytest.raises(ValueError, match="end-exclusive"):
         run_active_backtest(
-            [candle(1), Candle(datetime(2026, 2, 1, tzinfo=UTC), Decimal("100"), Decimal("100"))],
+            [
+                candle(1),
+                Candle(
+                    datetime(2026, 2, 1, tzinfo=UTC),
+                    Decimal("100"),
+                    Decimal("100"),
+                    Decimal("100"),
+                    Decimal("100"),
+                ),
+            ],
             plan(),
             at(1),
             datetime(2026, 2, 1, tzinfo=UTC),

@@ -128,7 +128,7 @@ def test_real_baseline_strategy_runs_through_recurring_cash_flow_bridge() -> Non
     frame.insert(0, "date", pd.date_range("2026-01-01", periods=rows, freq="4h", tz="UTC"))
     # The final completed candle creates an entry signal.  It can only execute
     # at a later open, so this fixture proves no same-open use of its close.
-    frame.loc[125, "close"] = 1_000
+    frame.loc[125, ["close", "high"]] = (1_000, 1_001)
     result = run_freqtrade_strategy(
         frame,
         InvestmentPlan("100", "40", "0", 15),

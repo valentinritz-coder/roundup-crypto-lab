@@ -65,7 +65,13 @@ def strategy_decisions(
     analyzed = strategy.populate_entry_trend(analyzed, metadata)
     analyzed = strategy.populate_exit_trend(analyzed, metadata)
     candles = [
-        Candle(row.date.to_pydatetime(), Decimal(str(row.open)), Decimal(str(row.close)))
+        Candle(
+            row.date.to_pydatetime(),
+            Decimal(str(row.open)),
+            Decimal(str(row.high)),
+            Decimal(str(row.low)),
+            Decimal(str(row.close)),
+        )
         for row in analyzed.itertuples()
         if start <= row.date.to_pydatetime().astimezone(UTC) < end
     ]
