@@ -18,6 +18,9 @@ import pandas as pd
 
 TIMEFRAME = "4h"
 INTERVAL = timedelta(hours=4)
+# A single absent 4h candle can defer a scheduled purchase to the next available
+# candle. Longer interruptions cannot be treated as a normal delayed execution.
+MAX_ALLOWED_GAP = timedelta(hours=8)
 WEEKDAYS = {
     name: number
     for number, name in enumerate(
@@ -74,8 +77,6 @@ def load_kraken_candles(data_dir: Path, pair: str, timeframe: str, timerange: st
         raise ValueError(f"OHLC values must be finite and positive for {pair}")
     if (numeric["volume"] < 0).any():
         raise ValueError(f"volume must be finite and non-negative for {pair}")
-    if (frame["date"].diff().dropna() > pd.Timedelta(INTERVAL)).any():
-        raise ValueError(f"critical 4h candle gap in {pair}")
     start, end = parse_timerange(timerange)
     selected = frame[(frame["date"] >= start) & (frame["date"] < end)].reset_index(drop=True)
     if selected.empty or selected.iloc[0]["date"].to_pydatetime() != start:
@@ -83,7 +84,31 @@ def load_kraken_candles(data_dir: Path, pair: str, timeframe: str, timerange: st
     # A 4h candle beginning on the final date is outside this end-exclusive date timerange.
     if selected.iloc[-1]["date"].to_pydatetime() < end - INTERVAL:
         raise ValueError(f"insufficient Kraken coverage at timerange end for {pair}")
+    gaps = selected["date"].diff().dropna()
+    if (gaps > pd.Timedelta(MAX_ALLOWED_GAP)).any():
+        largest_gap_index = gaps.idxmax()
+        largest_gap = gaps.loc[largest_gap_index]
+        before = selected.loc[largest_gap_index - 1, "date"].isoformat()
+        after = selected.loc[largest_gap_index, "date"].isoformat()
+        raise ValueError(
+            f"critical 4h candle gap in {pair}: largest gap {largest_gap} "
+            f"between {before} and {after}"
+        )
     return selected
+
+
+def _candle_metadata(candles: pd.DataFrame, timerange: str) -> dict[str, int | float]:
+    """Summarize timerange coverage without inferring or filling missing candles."""
+    start, end = parse_timerange(timerange)
+    expected_candles = int((end - start) / INTERVAL)
+    gaps = candles["date"].diff().dropna()
+    maximum_gap = gaps.max() if not gaps.empty else pd.Timedelta(0)
+    return {
+        "expected_candles": expected_candles,
+        "actual_candles": len(candles),
+        "missing_candles_estimate": max(0, expected_candles - len(candles)),
+        "maximum_gap_hours": maximum_gap.total_seconds() / timedelta(hours=1).total_seconds(),
+    }
 
 
 def _number(value: Decimal | None) -> float | None:
@@ -270,8 +295,10 @@ def run_passive_benchmarks(
     if not pairs:
         raise ValueError("at least one pair is required")
     benchmarks = []
+    pair_metadata = {}
     for pair in pairs:
         candles = load_kraken_candles(data_dir, pair, timeframe, timerange)
+        pair_metadata[pair] = _candle_metadata(candles, timerange)
         benchmarks.extend(
             (
                 buy_and_hold(candles, pair, initial, fee_value),
@@ -287,6 +314,7 @@ def run_passive_benchmarks(
             "data_dir": str(data_dir),
             "generated_at_utc": datetime.now(UTC).isoformat(),
             "pairs": pairs,
+            "pair_candle_coverage": pair_metadata,
         },
         "benchmarks": benchmarks,
     }
