@@ -78,14 +78,23 @@ def _load_backtest(path: Path) -> dict[str, Any]:
     _require_file(path)
     if path.suffix == ".zip":
         with zipfile.ZipFile(path) as archive:
-            names = [
-                name
-                for name in archive.namelist()
-                if name.endswith(".json") and "metadata" not in name
-            ]
-            if not names:
-                raise ValueError("Backtest ZIP contains no result JSON")
-            return json.loads(archive.read(names[0]))
+            candidates = []
+            for name in archive.namelist():
+                if (
+                    not name.endswith(".json")
+                    or name.endswith(".meta.json")
+                    or name.endswith("_config.json")
+                ):
+                    continue
+                document = json.loads(archive.read(name))
+                if isinstance(document, dict) and "strategy" in document:
+                    candidates.append((name, document))
+            if not candidates:
+                raise ValueError("Backtest ZIP contains no primary result JSON with a strategy key")
+            if len(candidates) != 1:
+                names = ", ".join(name for name, _ in candidates)
+                raise ValueError(f"Backtest ZIP has ambiguous primary result JSON files: {names}")
+            return candidates[0][1]
     return json.loads(path.read_text(encoding="utf-8"))
 
 
@@ -112,7 +121,7 @@ def create_baseline_summary(
         "wins",
         "losses",
         "winrate",
-        "profit_total_pct",
+        "profit_total",
         "profit_total_abs",
         "profit_factor",
         "max_drawdown_account",
@@ -137,8 +146,10 @@ def create_baseline_summary(
         "trades": results["total_trades"],
         "wins": results["wins"],
         "losses": results["losses"],
-        "win_rate": results["winrate"],
-        "total_profit_pct": results["profit_total_pct"],
+        "win_rate_ratio": results["winrate"],
+        "win_rate_pct": results["winrate"] * 100,
+        "total_profit_ratio": results["profit_total"],
+        "total_profit_pct": results["profit_total"] * 100,
         "total_profit_abs": results["profit_total_abs"],
         "profit_factor": results["profit_factor"],
         "max_drawdown_pct": results["max_drawdown_account"] * 100,
@@ -157,7 +168,17 @@ def create_baseline_summary(
 def validate_baseline_summary(path: Path, strategy: str = STRATEGY) -> None:
     _require_file(path)
     data = json.loads(path.read_text(encoding="utf-8"))
-    required = {"strategy", "trades", "total_profit_pct", "timerange", "pairs", "timeframe"}
+    required = {
+        "strategy",
+        "trades",
+        "win_rate_ratio",
+        "win_rate_pct",
+        "total_profit_ratio",
+        "total_profit_pct",
+        "timerange",
+        "pairs",
+        "timeframe",
+    }
     if not required <= data.keys() or data["strategy"] != strategy or int(data["trades"]) <= 0:
         raise ValueError(
             "Baseline summary is missing essential fields, has zero trades, or wrong strategy"
