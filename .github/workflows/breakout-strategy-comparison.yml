@@ -54,7 +54,7 @@ jobs:
         run: mkdir -p artifacts/results/{baseline,trend,atr,atr-volume} artifacts/logs
       - name: Backtest baseline
         env: {TIMERANGE: '${{ inputs.timerange }}', TIMEFRAME: '${{ inputs.timeframe }}'}
-        run: python -m freqtrade backtesting --config user_data/config.json --timeframe "$TIMEFRAME" --timerange "$TIMERANGE" --export trades --export-filename artifacts/results/baseline/result.zip --strategy RoundupBreakoutStrategy |& tee artifacts/logs/baseline.txt
+        run: python -m freqtrade backtesting --config user_data/config.json --timeframe "$TIMEFRAME" --timerange "$TIMERANGE" --export trades --backtest-directory artifacts/results/baseline --strategy RoundupBreakoutStrategy |& tee artifacts/logs/baseline.txt
       - name: Validate baseline result exists
         run: |
           mapfile -t results < <(find artifacts/results/baseline -maxdepth 1 -type f -name '*.zip' -print)
@@ -62,7 +62,7 @@ jobs:
           mv "${results[0]}" artifacts/results/baseline.zip
       - name: Backtest trend
         env: {TIMERANGE: '${{ inputs.timerange }}', TIMEFRAME: '${{ inputs.timeframe }}'}
-        run: python -m freqtrade backtesting --config user_data/config.json --timeframe "$TIMEFRAME" --timerange "$TIMERANGE" --export trades --export-filename artifacts/results/trend/result.zip --strategy RoundupBreakoutTrendStrategy |& tee artifacts/logs/trend.txt
+        run: python -m freqtrade backtesting --config user_data/config.json --timeframe "$TIMEFRAME" --timerange "$TIMERANGE" --export trades --backtest-directory artifacts/results/trend --strategy RoundupBreakoutTrendStrategy |& tee artifacts/logs/trend.txt
       - name: Validate trend result exists
         run: |
           mapfile -t results < <(find artifacts/results/trend -maxdepth 1 -type f -name '*.zip' -print)
@@ -70,7 +70,7 @@ jobs:
           mv "${results[0]}" artifacts/results/trend.zip
       - name: Backtest ATR
         env: {TIMERANGE: '${{ inputs.timerange }}', TIMEFRAME: '${{ inputs.timeframe }}'}
-        run: python -m freqtrade backtesting --config user_data/config.json --timeframe "$TIMEFRAME" --timerange "$TIMERANGE" --export trades --export-filename artifacts/results/atr/result.zip --strategy RoundupBreakoutAtrStrategy |& tee artifacts/logs/atr.txt
+        run: python -m freqtrade backtesting --config user_data/config.json --timeframe "$TIMEFRAME" --timerange "$TIMERANGE" --export trades --backtest-directory artifacts/results/atr --strategy RoundupBreakoutAtrStrategy |& tee artifacts/logs/atr.txt
       - name: Validate ATR result exists
         run: |
           mapfile -t results < <(find artifacts/results/atr -maxdepth 1 -type f -name '*.zip' -print)
@@ -78,7 +78,7 @@ jobs:
           mv "${results[0]}" artifacts/results/atr.zip
       - name: Backtest ATR+Volume
         env: {TIMERANGE: '${{ inputs.timerange }}', TIMEFRAME: '${{ inputs.timeframe }}'}
-        run: python -m freqtrade backtesting --config user_data/config.json --timeframe "$TIMEFRAME" --timerange "$TIMERANGE" --export trades --export-filename artifacts/results/atr-volume/result.zip --strategy RoundupBreakoutAtrVolumeStrategy |& tee artifacts/logs/atr-volume.txt
+        run: python -m freqtrade backtesting --config user_data/config.json --timeframe "$TIMEFRAME" --timerange "$TIMERANGE" --export trades --backtest-directory artifacts/results/atr-volume --strategy RoundupBreakoutAtrVolumeStrategy |& tee artifacts/logs/atr-volume.txt
       - name: Validate ATR+Volume result exists
         run: |
           mapfile -t results < <(find artifacts/results/atr-volume -maxdepth 1 -type f -name '*.zip' -print)

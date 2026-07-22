@@ -116,9 +116,39 @@ def test_breakout_comparison_workflow_contract() -> None:
     assert workflow.count("--config user_data/config.json") >= 4
     assert workflow.count('--timeframe "$TIMEFRAME"') >= 4
     assert workflow.count('--timerange "$TIMERANGE"') >= 4
-    for filename in ("baseline.zip", "trend.zip", "atr.zip", "atr-volume.zip"):
-        assert f"artifacts/results/{filename}" in workflow
+    assert "--export-filename" not in workflow
+    variants = (
+        ("baseline", "baseline"),
+        ("trend", "trend"),
+        ("atr", "ATR"),
+        ("atr-volume", "ATR+Volume"),
+    )
+    for variant, validation_name in variants:
+        result_directory = f"artifacts/results/{variant}"
+        final_result = f"artifacts/results/{variant}.zip"
+        assert (
+            len(
+                re.findall(
+                    rf"--backtest-directory {re.escape(result_directory)}(?=\s|$)", workflow
+                )
+            )
+            == 1
+        )
+        validation = workflow.split(f"Validate {validation_name}", 1)[1].split(
+            "\n      - name:", 1
+        )[0]
+        assert f"find {result_directory} -maxdepth 1 -type f -name '*.zip' -print" in validation
+        assert 'test "${#results[@]}" -eq 1' in validation
+        assert f'mv "${{results[0]}}" {final_result}' in validation
     assert "python -m roundup_crypto_lab.compare_strategies" in workflow
+    comparison = workflow.split("python -m roundup_crypto_lab.compare_strategies", 1)[1]
+    for strategy, variant in (
+        ("RoundupBreakoutStrategy", "baseline"),
+        ("RoundupBreakoutTrendStrategy", "trend"),
+        ("RoundupBreakoutAtrStrategy", "atr"),
+        ("RoundupBreakoutAtrVolumeStrategy", "atr-volume"),
+    ):
+        assert f"--result {strategy}=artifacts/results/{variant}.zip" in comparison
     assert "breakout-comparison.json" in workflow
     assert "GITHUB_STEP_SUMMARY" in workflow
     assert "actions/upload-artifact@v4" in workflow and "if: always()" in workflow
