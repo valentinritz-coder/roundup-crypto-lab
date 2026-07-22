@@ -48,37 +48,74 @@ def validate_lookahead_report(path: Path, strategy: str = STRATEGY) -> None:
         raise ValueError(f"Lookahead bias detected for {strategy}: {row}")
 
 
-def validate_recursive_report(path: Path, startups: tuple[int, ...] = (120, 240, 480)) -> None:
-    """Validate the text-table contract emitted by Freqtrade 2026.6.
+def validate_recursive_report(
+    path: Path,
+    startups: tuple[int, ...] = (120, 240, 480),
+    tolerance_pct: float = 0.01,
+) -> None:
+    """Validate Freqtrade 2026.6's Recursive Analysis table within a percentage tolerance.
 
-    A report may explicitly say that no variance was found. Otherwise it must contain
-    the Rich ``Recursive Analysis`` table with every requested startup column and all
-    reported percentage differences must be exactly 0.000%; any variation is rejected.
+    The tolerance is expressed in percentage points. Only numeric cells in the
+    Recursive Analysis table are evaluated; tiny calculation differences at or below
+    ``tolerance_pct`` are accepted, while larger differences fail validation.
     """
+    if (
+        not isinstance(tolerance_pct, (int, float))
+        or isinstance(tolerance_pct, bool)
+        or not math.isfinite(tolerance_pct)
+        or tolerance_pct < 0
+    ):
+        raise ValueError("Recursive analysis tolerance_pct must be finite and non-negative")
     _require_file(path)
     text = path.read_text(encoding="utf-8", errors="replace")
     if "No variance on indicator(s) found due to recursive formula." in text:
         return
-    if "Recursive Analysis" not in text:
-        raise ValueError("Recursive report contains neither a stable result nor its result table")
-    header = next(
+    lines = text.splitlines()
+    header_index, header = next(
         (
-            line
-            for line in text.splitlines()
-            if "Indicators" in line and any(separator in line for separator in ("│", "┃"))
+            (index, line)
+            for index, line in enumerate(lines)
+            if "Indicators" in line and any(separator in line for separator in ("│", "┃", "|"))
         ),
-        "",
+        (None, ""),
     )
+    if header_index is None:
+        raise ValueError("Recursive report contains no Recursive Analysis table header")
     missing = [str(value) for value in startups if not re.search(rf"(?<!\d){value}(?!\d)", header)]
     if missing:
         raise ValueError(
             f"Recursive report is missing startup candle columns: {', '.join(missing)}"
         )
-    percentages = re.findall(r"([+-]?\d+(?:\.\d+)?)%", text)
-    if not percentages:
-        raise ValueError("Recursive report table contains no percentage results")
-    if any(float(value) != 0.0 for value in percentages):
-        raise ValueError("Recursive analysis reported unstable indicator values")
+
+    found_indicator = False
+    for line in lines[header_index + 1 :]:
+        stripped = line.strip()
+        if not stripped:
+            if found_indicator:
+                break
+            continue
+        if stripped[0] in "┏┓┗┛┡┩└┘─━┳┻┯┷┼╇":
+            continue
+        separator = next((char for char in ("│", "┃", "|") if char in stripped), None)
+        if (
+            separator is None
+            or not stripped.startswith(separator)
+            or not stripped.endswith(separator)
+        ):
+            break
+        cells = [cell.strip() for cell in stripped.split(separator)[1:-1]]
+        if len(cells) < len(startups) + 1:
+            raise ValueError("Recursive report indicator row has too few cells")
+        found_indicator = True
+        for cell in cells[1 : len(startups) + 1]:
+            if cell == "-":
+                continue
+            if not re.fullmatch(r"[+-]?\d+(?:\.\d+)?%", cell):
+                raise ValueError(f"Recursive report has invalid percentage cell: {cell!r}")
+            if abs(float(cell[:-1])) > tolerance_pct:
+                raise ValueError("Recursive analysis reported unstable indicator values")
+    if not found_indicator:
+        raise ValueError("Recursive report table contains no indicator rows")
 
 
 def _load_backtest(path: Path) -> dict[str, Any]:

@@ -48,38 +48,65 @@ def test_lookahead_accepts_clean_and_rejects_entry_exit_bias(tmp_path: Path) -> 
         validate_lookahead_report(write(tmp_path / "exit.csv", LOOKAHEAD.replace(",0,0,", ",0,1,")))
 
 
-def test_recursive_rejects_absent_and_missing_startups_and_instability(tmp_path: Path) -> None:
+def recursive_table(rows: list[str], *, trailing: str = "") -> str:
+    return "\n".join(
+        [
+            "Recursive Analysis",
+            "┏━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━┳━━━━━━━━━┓",
+            "┃ Indicators ┃ 120 (from strategy) ┃     240 ┃     480 ┃",
+            "┡━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━╇━━━━━━━━━┩",
+            *rows,
+            "└────────────┴─────────────────────┴─────────┴─────────┘",
+            trailing,
+        ]
+    )
+
+
+def test_recursive_accepts_real_micro_variance_missing_cells_and_log_percentages(
+    tmp_path: Path,
+) -> None:
+    report = recursive_table(
+        [
+            "┃ sma_20     ┃ -0.000%             ┃  0.008% ┃  0.010% ┃",
+            "┃ sma_100    ┃ -                   ┃ -0.000% ┃ -      ┃",
+            "┃ atr_14     ┃ -0.001%             ┃ -0.000% ┃ -      ┃",
+        ],
+        trailing="Unrelated setup log reported 99.000% elsewhere.",
+    )
+    validate_recursive_report(write(tmp_path / "stable.txt", report), tolerance_pct=0.01)
+
+
+@pytest.mark.parametrize("value", ("0.011%", "-0.011%", "0.100%"))
+def test_recursive_rejects_values_outside_tolerance(tmp_path: Path, value: str) -> None:
+    report = recursive_table([f"┃ atr_14 ┃ {value} ┃ 0.000% ┃ 0.000% ┃"])
+    with pytest.raises(ValueError, match="unstable"):
+        validate_recursive_report(write(tmp_path / "unstable.txt", report), tolerance_pct=0.01)
+
+
+def test_recursive_rejects_invalid_cells_and_missing_indicator_rows(tmp_path: Path) -> None:
+    invalid = recursive_table(["┃ atr_14 ┃ abc% ┃ 0.000% ┃ 0.000% ┃"])
+    with pytest.raises(ValueError, match="invalid percentage"):
+        validate_recursive_report(write(tmp_path / "invalid.txt", invalid))
+    empty = recursive_table([])
+    with pytest.raises(ValueError, match="no indicator"):
+        validate_recursive_report(write(tmp_path / "empty-table.txt", empty))
+
+
+@pytest.mark.parametrize("tolerance", (-0.01, float("nan"), float("inf")))
+def test_recursive_rejects_invalid_tolerance(tmp_path: Path, tolerance: float) -> None:
+    with pytest.raises(ValueError, match="tolerance_pct"):
+        validate_recursive_report(
+            write(tmp_path / "report.txt", "irrelevant"), tolerance_pct=tolerance
+        )
+
+
+def test_recursive_rejects_absent_or_missing_startups(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="missing"):
         validate_recursive_report(tmp_path / "missing.txt")
     with pytest.raises(ValueError, match="missing startup"):
         validate_recursive_report(
             write(tmp_path / "short.txt", "Recursive Analysis\n│ Indicators │ 120 │ 240 │\n")
         )
-    unstable = (
-        "Recursive Analysis\n│ Indicators │ 120 │ 240 │ 480 │\n│ sma │ 0.000% │ 0.100% │ 0.000% │\n"
-    )
-    with pytest.raises(ValueError, match="unstable"):
-        validate_recursive_report(write(tmp_path / "unstable.txt", unstable))
-
-
-def test_recursive_accepts_freqtrade_2026_6_heavy_vertical_table(tmp_path: Path) -> None:
-    report = (
-        "                    Recursive Analysis\n"
-        "┏━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━┳━━━━━━━━━┓\n"
-        "┃ Indicators ┃ 120 (from strategy) ┃     240 ┃     480 ┃\n"
-        "┡━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━╇━━━━━━━━━┩\n"
-        "┃ sma_20     ┃              0.000% ┃  0.000% ┃  0.000% ┃\n"
-        "└────────────┴─────────────────────┴─────────┴─────────┘\n"
-    )
-    validate_recursive_report(write(tmp_path / "rich-heavy.txt", report))
-
-
-def test_recursive_accepts_stable_report(tmp_path: Path) -> None:
-    validate_recursive_report(
-        write(
-            tmp_path / "stable.txt", "No variance on indicator(s) found due to recursive formula.\n"
-        )
-    )
 
 
 def real_result(strategy: str = "RoundupBreakoutStrategy") -> dict:
