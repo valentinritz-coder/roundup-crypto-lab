@@ -40,7 +40,15 @@ jobs:
         env: {TIMERANGE: '${{ inputs.timerange }}', TIMEFRAME: '${{ inputs.timeframe }}'}
         run: |
           mkdir -p artifacts/results artifacts/logs
-          run_backtest() { python -m freqtrade backtesting --cache none --config user_data/config.json --timeframe "$TIMEFRAME" --timerange "$TIMERANGE" --export trades --backtest-directory "artifacts/results/$2" --strategy "$1" |& tee "artifacts/logs/$2.txt"; mapfile -t zips < <(find "artifacts/results/$2" -maxdepth 1 -type f -name '*.zip' -print); test "${#zips[@]}" -eq 1 || { echo "Expected exactly one ZIP for $1"; exit 1; }; mv "${zips[0]}" "artifacts/results/$2.zip"; }
+          run_backtest() {
+            local strategy="$1" result_name="$2"
+            rm -f artifacts/results/backtest-result-*.zip
+            python -m freqtrade backtesting --cache none --config user_data/config.json --timeframe "$TIMEFRAME" --timerange "$TIMERANGE" --export trades --backtest-directory artifacts/results --strategy "$strategy" |& tee "artifacts/logs/$result_name.txt"
+            mapfile -t zips < <(find artifacts/results -maxdepth 1 -type f -name 'backtest-result-*.zip' -printf '%T@ %p\n' | sort -nr | cut -d' ' -f2-)
+            test "${#zips[@]}" -eq 1 || { echo "Expected exactly one newly produced ZIP for $strategy"; exit 1; }
+            mv "${zips[0]}" "artifacts/results/$result_name.zip"
+            find artifacts/results -maxdepth 1 -type f -name 'backtest-result-*.meta.json' -delete
+          }
           run_backtest RoundupBreakoutStrategy breakout-baseline
           run_backtest RoundupBreakoutTrendStrategy breakout-trend
           run_backtest RoundupBreakoutAtrStrategy breakout-atr
