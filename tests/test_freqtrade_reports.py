@@ -62,6 +62,18 @@ def test_recursive_rejects_absent_and_missing_startups_and_instability(tmp_path:
         validate_recursive_report(write(tmp_path / "unstable.txt", unstable))
 
 
+def test_recursive_accepts_freqtrade_2026_6_heavy_vertical_table(tmp_path: Path) -> None:
+    report = (
+        "                    Recursive Analysis\n"
+        "┏━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━┳━━━━━━━━━┓\n"
+        "┃ Indicators ┃ 120 (from strategy) ┃     240 ┃     480 ┃\n"
+        "┡━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━╇━━━━━━━━━┩\n"
+        "┃ sma_20     ┃              0.000% ┃  0.000% ┃  0.000% ┃\n"
+        "└────────────┴─────────────────────┴─────────┴─────────┘\n"
+    )
+    validate_recursive_report(write(tmp_path / "rich-heavy.txt", report))
+
+
 def test_recursive_accepts_stable_report(tmp_path: Path) -> None:
     validate_recursive_report(
         write(

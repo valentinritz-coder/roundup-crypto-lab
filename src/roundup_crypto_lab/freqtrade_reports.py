@@ -61,7 +61,14 @@ def validate_recursive_report(path: Path, startups: tuple[int, ...] = (120, 240,
         return
     if "Recursive Analysis" not in text:
         raise ValueError("Recursive report contains neither a stable result nor its result table")
-    header = next((line for line in text.splitlines() if "Indicators" in line and "│" in line), "")
+    header = next(
+        (
+            line
+            for line in text.splitlines()
+            if "Indicators" in line and any(separator in line for separator in ("│", "┃"))
+        ),
+        "",
+    )
     missing = [str(value) for value in startups if not re.search(rf"(?<!\d){value}(?!\d)", header)]
     if missing:
         raise ValueError(
