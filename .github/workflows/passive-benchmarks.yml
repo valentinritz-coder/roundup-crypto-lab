@@ -1,0 +1,58 @@
+name: Passive benchmarks
+on:
+  workflow_dispatch:
+    inputs:
+      timerange: {description: Strict YYYYMMDD-YYYYMMDD timerange, required: true, type: string}
+      timeframe: {description: Fixed timeframe, required: true, default: "4h", type: choice, options: ["4h"]}
+      initial_capital: {description: Buy and Hold capital, required: true, default: "200", type: string}
+      daily_contribution: {description: Daily DCA contribution, required: true, default: "10", type: string}
+      weekly_contribution: {description: Weekly DCA contribution, required: true, default: "10", type: string}
+      fee: {description: Purchase fee ratio, required: true, default: "0.004", type: string}
+permissions: {contents: read}
+concurrency: {group: kraken-ohlcv-pipeline, cancel-in-progress: false}
+jobs:
+  benchmarks:
+    runs-on: ubuntu-latest
+    defaults: {run: {shell: "bash -eo pipefail {0}"}}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.12', cache: pip, cache-dependency-path: pyproject.toml}
+      - name: Install project
+        run: python -m pip install -e '.[dev]'
+      - name: Restore Kraken cache
+        uses: actions/cache/restore@v4
+        id: restore-kraken
+        with: {path: user_data/data/kraken, key: 'kraken-ohlcv-v1-update-${{ github.run_id }}', restore-keys: kraken-ohlcv-v1-}
+      - name: Validate inputs and cache coverage
+        env: {TIMERANGE: '${{ inputs.timerange }}', TIMEFRAME: '${{ inputs.timeframe }}'}
+        run: |
+          test "$TIMEFRAME" = 4h
+          test '${{ steps.restore-kraken.outputs.cache-hit }}' != '' || { echo 'No Kraken cache was restored: run Update Kraken data first.'; exit 1; }
+          python -c 'from roundup_crypto_lab.passive_benchmarks import parse_timerange; parse_timerange("'"$TIMERANGE"'")'
+          mkdir -p artifacts/benchmarks artifacts/logs
+      - name: Run passive benchmarks
+        env: {TIMERANGE: '${{ inputs.timerange }}', INITIAL_CAPITAL: '${{ inputs.initial_capital }}', DAILY_CONTRIBUTION: '${{ inputs.daily_contribution }}', WEEKLY_CONTRIBUTION: '${{ inputs.weekly_contribution }}', FEE: '${{ inputs.fee }}'}
+        run: |
+          python -m roundup_crypto_lab.passive_benchmarks --data-dir user_data/data/kraken --pairs BTC/EUR ETH/EUR --timeframe 4h --timerange "$TIMERANGE" --initial-capital "$INITIAL_CAPITAL" --daily-contribution "$DAILY_CONTRIBUTION" --weekly-contribution "$WEEKLY_CONTRIBUTION" --weekly-day monday --fee "$FEE" --output-json artifacts/benchmarks/passive-benchmarks.json --output-dir artifacts/benchmarks |& tee artifacts/logs/passive-benchmarks.txt
+          python -c 'import json; json.load(open("artifacts/benchmarks/passive-benchmarks.json"))'
+      - name: Write Job Summary
+        env: {TIMERANGE: '${{ inputs.timerange }}', INITIAL_CAPITAL: '${{ inputs.initial_capital }}', DAILY_CONTRIBUTION: '${{ inputs.daily_contribution }}', WEEKLY_CONTRIBUTION: '${{ inputs.weekly_contribution }}', FEE: '${{ inputs.fee }}'}
+        run: |
+          python - <<'PY' | tee artifacts/benchmarks/job-summary.md >> "$GITHUB_STEP_SUMMARY"
+          import json, os, platform
+          data=json.load(open('artifacts/benchmarks/passive-benchmarks.json'))
+          print('# Passive benchmarks\n')
+          print(f"- **Timerange:** `{os.environ['TIMERANGE']}`\n- **Timeframe:** `4h`\n- **Fee:** `{os.environ['FEE']}`\n- **Buy & Hold capital:** `{os.environ['INITIAL_CAPITAL']}`\n- **Daily contribution:** `{os.environ['DAILY_CONTRIBUTION']}`\n- **Weekly contribution:** `{os.environ['WEEKLY_CONTRIBUTION']}`\n- **Commit SHA:** `${{ github.sha }}`\n- **Python:** `{platform.python_version()}`\n- **UTC:** `{data['metadata']['generated_at_utc']}`\n")
+          print('| Benchmark | Pair | Buys | Invested | Final value | Profit abs | Profit total % | Max drawdown % | Avg entry price |\n| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |')
+          for row in data['benchmarks']:
+              print(f"| {row['benchmark']} | {row['pair']} | {row['number_of_buys']} | {row['capital_invested']:.2f} | {row['final_value']:.2f} | {row['profit_total_abs']:.2f} | {row['profit_total']:.2%} | {row['max_drawdown_time_weighted']:.2%} | {row['average_entry_price']:.2f} |")
+          print('\nDCA performance is measured against cumulative contributions. DCA drawdown is based on a contribution-neutral, time-weighted equity curve.\n\nThese benchmarks are passive references only and do not establish future profitability.')
+          PY
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: 'passive-benchmarks-${{ github.run_id }}'
+          path: artifacts/
+          if-no-files-found: warn
+          retention-days: 30
