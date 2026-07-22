@@ -44,13 +44,16 @@ def _read_result(path: Path) -> dict[str, Any]:
     return candidates[0]
 
 
-def create_comparison(results: dict[str, Path]) -> list[dict[str, int | float | str]]:
+def create_comparison(
+    results: dict[str, Path], required_strategies: set[str] | None = None
+) -> list[dict[str, int | float | str]]:
     """Return comparable metrics, rejecting incomplete, duplicate, or invalid input."""
     if not results:
         raise ValueError("Comparison report cannot be empty")
-    if set(results) != REQUIRED_STRATEGIES:
-        missing = REQUIRED_STRATEGIES - set(results)
-        extra = set(results) - REQUIRED_STRATEGIES
+    required = REQUIRED_STRATEGIES if required_strategies is None else required_strategies
+    if set(results) != required:
+        missing = required - set(results)
+        extra = set(results) - required
         raise ValueError(
             f"Comparison strategies differ; missing={sorted(missing)}, extra={sorted(extra)}"
         )
@@ -81,6 +84,7 @@ def create_comparison(results: dict[str, Path]) -> list[dict[str, int | float | 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--result", action="append", required=True, metavar="STRATEGY=PATH")
+    parser.add_argument("--expected-strategy", action="append", metavar="STRATEGY")
     parser.add_argument("--output", required=True, type=Path)
     args = parser.parse_args()
     inputs: dict[str, Path] = {}
@@ -89,7 +93,8 @@ def main() -> None:
         if not separator or not strategy or not raw_path or strategy in inputs:
             raise SystemExit("Each --result must be a unique STRATEGY=PATH pair")
         inputs[strategy] = Path(raw_path)
-    rows = create_comparison(inputs)
+    expected = set(args.expected_strategy) if args.expected_strategy else None
+    rows = create_comparison(inputs, expected)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(rows, indent=2) + "\n", encoding="utf-8")
 

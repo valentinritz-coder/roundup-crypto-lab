@@ -128,9 +128,7 @@ def test_breakout_comparison_workflow_contract() -> None:
         final_result = f"artifacts/results/{variant}.zip"
         assert (
             len(
-                re.findall(
-                    rf"--backtest-directory {re.escape(result_directory)}(?=\s|$)", workflow
-                )
+                re.findall(rf"--backtest-directory {re.escape(result_directory)}(?=\s|$)", workflow)
             )
             == 1
         )
@@ -152,3 +150,27 @@ def test_breakout_comparison_workflow_contract() -> None:
     assert "breakout-comparison.json" in workflow
     assert "GITHUB_STEP_SUMMARY" in workflow
     assert "actions/upload-artifact@v4" in workflow and "if: always()" in workflow
+
+
+def test_all_strategy_comparison_workflow_contract() -> None:
+    workflow = content("all-strategy-comparison.yml")
+    parsed = yaml.safe_load(workflow)
+    assert parsed and "workflow_dispatch:" in workflow
+    assert all(trigger not in workflow for trigger in ("push:", "pull_request", "schedule:"))
+    assert "required: true" in workflow and 'options: ["4h"]' in workflow
+    assert "download-data" not in workflow and "hyperopt" not in workflow
+    assert "--export-filename" not in workflow and "--cache none" in workflow
+    assert "kraken-ohlcv-pipeline" in workflow
+    for name in (
+        "RoundupBreakoutStrategy",
+        "RoundupBreakoutTrendStrategy",
+        "RoundupBreakoutAtrStrategy",
+        "RoundupBreakoutAtrVolumeStrategy",
+        "RoundupTrendPullbackStrategy",
+        "RoundupConfirmedBreakoutStrategy",
+        "RoundupVolatilitySqueezeStrategy",
+    ):
+        assert workflow.count(f"run_backtest {name}") == 1
+        assert f"--result {name}=" in workflow
+    assert workflow.count("--config user_data/config.json") >= 1
+    assert "GITHUB_STEP_SUMMARY" in workflow and "if: always()" in workflow
