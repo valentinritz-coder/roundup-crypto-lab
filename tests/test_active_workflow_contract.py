@@ -43,10 +43,10 @@ def test_all_strategy_workflow_executes_and_consumes_effective_arguments() -> No
     ):
         assert argument in active
 
-    differential = by_name["Validate one-shot native differential"]
+    differential = by_name["Diagnose one-shot native differential"]
     assert differential["if"] == "${{ inputs.capital_mode == 'one_shot_capital' }}"
     command = differential["run"]
-    assert "one_shot_differential combine" in command
+    assert "one_shot_diagnostic combine" in command
     assert "assert len" not in command
     for strategy in STRATEGIES:
         assert f"differential-{strategy}.json" in command
@@ -58,5 +58,5 @@ def test_all_strategy_workflow_executes_and_consumes_effective_arguments() -> No
         assert f"--active-result artifacts/results/active-{strategy}.json" in report
 
     upload = next(step for step in steps if step.get("uses") == "actions/upload-artifact@v4")
-    assert upload["if"] == "success()"
+    assert upload["if"] == "always()"
     assert upload["with"]["if-no-files-found"] == "error"
