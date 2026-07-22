@@ -30,6 +30,22 @@ INTERVAL = timedelta(hours=4)
 # candle. Longer interruptions cannot be treated as a normal delayed execution.
 MAX_ALLOWED_GAP = timedelta(hours=8)
 
+PURCHASE_LEDGER_FIELDS = [
+    "contributed_at",
+    "scheduled_at",
+    "executed_at",
+    "execution_price",
+    "gross_contribution",
+    "fee_paid",
+    "net_contribution",
+    "quantity",
+    "cumulative_quantity",
+    "cumulative_gross_contributions",
+    "cumulative_fees",
+    "residual_cash",
+    "marked_to_market_portfolio_value",
+]
+
 
 @dataclass(frozen=True)
 class DeploymentBucket:
@@ -165,6 +181,59 @@ def _purchase_at_or_after(candles: pd.DataFrame, scheduled: datetime) -> tuple[i
     return index, candles.iloc[index]
 
 
+def _assert_accounting_invariants(
+    purchases: list[dict[str, Any]],
+    *,
+    quantity: Decimal,
+    cash: Decimal,
+    contributions: Decimal,
+    invested: Decimal,
+    fees: Decimal,
+    final_price: Decimal,
+    final_value: Decimal,
+    expected_contributions: Decimal,
+) -> None:
+    """Independently recompute long-only ledger totals and fail closed on mismatch."""
+    values = (quantity, cash, contributions, invested, fees, final_price, final_value)
+    if any(not value.is_finite() or value < 0 for value in values):
+        raise ValueError("passive accounting produced a non-finite or negative balance")
+
+    running_quantity = running_fees = running_invested = Decimal("0")
+    for purchase in purchases:
+        gross = purchase["gross_contribution"]
+        fee = purchase["fee_paid"]
+        net = purchase["net_contribution"]
+        execution_price = purchase["execution_price"]
+        acquired = purchase["quantity"]
+        if gross != fee + net or acquired != net / execution_price:
+            raise ValueError("purchase ledger accounting invariant failed")
+        running_quantity += acquired
+        running_fees += fee
+        running_invested += gross
+        if purchase["cumulative_quantity"] != running_quantity:
+            raise ValueError("purchase ledger cumulative quantity invariant failed")
+        if purchase["cumulative_fees"] != running_fees:
+            raise ValueError("purchase ledger cumulative fee invariant failed")
+
+    if quantity != running_quantity or quantity != sum(
+        (purchase["net_contribution"] / purchase["execution_price"] for purchase in purchases),
+        Decimal("0"),
+    ):
+        raise ValueError("final quantity does not equal independently recomputed ledger quantity")
+    if invested != running_invested or fees != running_fees:
+        raise ValueError("final invested capital or fees do not equal ledger totals")
+    if purchases and purchases[-1]["cumulative_quantity"] != quantity:
+        raise ValueError("final ledger cumulative quantity does not equal final quantity")
+    if contributions != expected_contributions:
+        raise ValueError("gross investor contributions do not equal the investment plan")
+    # Decimal divisions used to split DCA buckets can retain a sub-atto residue;
+    # this is normalized to cash zero at execution and is the sole tolerance here.
+    if abs(contributions - invested - cash) > Decimal("1e-24"):
+        raise ValueError("portfolio cash accounting invariant failed")
+    if final_value != cash + quantity * final_price:
+        raise ValueError("final portfolio valuation invariant failed")
+
+
 def _build_result(
     benchmark: str,
     pair: str,
@@ -197,16 +266,25 @@ def _build_result(
             cash += event.amount
             contributions += event.amount
             event_index += 1
-        for purchase in purchases_by_index.get(index, []):
-            if purchase["gross_contribution"] > cash and purchase[
-                "gross_contribution"
-            ] - cash > Decimal("1e-24"):
+        executed_this_candle = purchases_by_index.get(index, [])
+        for purchase in executed_this_candle:
+            if purchase["gross_contribution"] - cash > Decimal("1e-24"):
                 raise ValueError("purchase exceeds available investor cash")
+            # The fee is taken from the gross order amount.  It reduces acquired
+            # crypto, not a separate cash balance; cash therefore falls by gross.
+            # Repeating Decimal divisions in DCA portions can leave a sub-atto
+            # rounding residue, which is explicitly normalized to zero.
             cash = max(Decimal("0"), cash - purchase["gross_contribution"])
             invested += purchase["gross_contribution"]
             fees += purchase["fee_paid"]
             quantity += purchase["quantity"]
+            purchase["cumulative_quantity"] = quantity
+            purchase["cumulative_gross_contributions"] = contributions
+            purchase["cumulative_fees"] = fees
+            purchase["residual_cash"] = cash
         crypto_value = quantity * Decimal(str(candle["close"]))
+        for purchase in executed_this_candle:
+            purchase["marked_to_market_portfolio_value"] = cash + crypto_value
         portfolio_value = cash + crypto_value
         if shares:
             share_value = portfolio_value / shares
@@ -230,6 +308,17 @@ def _build_result(
     final_crypto_value = quantity * final_price
     final_value = cash + final_crypto_value
     average = invested / quantity if quantity else None
+    _assert_accounting_invariants(
+        purchases,
+        quantity=quantity,
+        cash=cash,
+        contributions=contributions,
+        invested=invested,
+        fees=fees,
+        final_price=final_price,
+        final_value=final_value,
+        expected_contributions=total_contributions,
+    )
     raw_drawdown = _drawdown([row["portfolio_value"] for row in equity])
     time_weighted_drawdown = _drawdown([row["time_weighted_share_value"] for row in equity])
     return {
@@ -240,13 +329,18 @@ def _build_result(
         "capital_invested": _number(invested),
         "total_contributions": _number(total_contributions),
         "cash_balance": _number(cash),
+        "cash_balance_exact": str(cash),
         "cash_available": _number(cash),
         "fees_paid": _number(fees),
         "quantity": _number(quantity),
+        "quantity_exact": str(quantity),
         "average_entry_price": _number(average),
+        "average_entry_price_exact": None if average is None else str(average),
         "final_price": _number(final_price),
+        "final_price_exact": str(final_price),
         "final_crypto_value": _number(final_crypto_value),
         "final_value": _number(final_value),
+        "final_value_exact": str(final_value),
         "portfolio_value": _number(final_value),
         "profit_total_abs": _number(final_value - total_contributions),
         "profit_total": _number((final_value - total_contributions) / total_contributions),
@@ -262,6 +356,18 @@ def _build_result(
                 for key, value in row.items()
             }
             for row in equity
+        ],
+        # ``purchase_ledger`` is deliberately duplicated under the legacy
+        # ``purchases`` name until downstream report consumers migrate.
+        "purchase_ledger": [
+            {
+                # Decimal strings retain every significant digit in the JSON and CSV
+                # audit artifacts; the legacy ``purchases`` projection remains numeric.
+                key: (str(value) if isinstance(value, Decimal) else value)
+                for key, value in row.items()
+                if key != "candle_index"
+            }
+            for row in purchases
         ],
         "purchases": [
             {
@@ -400,7 +506,6 @@ def run_passive_benchmarks(
             "timeframe": timeframe,
             "fee": _number(plan.fee_ratio),
             "data_dir": str(data_dir),
-            "generated_at_utc": datetime.now(UTC).isoformat(),
             "pairs": pairs,
             "initial_capital": _number(plan.initial_capital),
             "monthly_budget": _number(plan.monthly_budget),
@@ -423,15 +528,16 @@ def write_details(result: dict[str, Any], output_dir: Path) -> None:
         )
         for suffix, rows in (
             ("equity", benchmark["equity_curve"]),
-            ("purchases", benchmark["purchases"]),
+            ("purchase-ledger", benchmark["purchase_ledger"]),
         ):
-            if rows:
-                with (output_dir / f"{stem}-{suffix}.csv").open(
-                    "w", newline="", encoding="utf-8"
-                ) as handle:
-                    writer = csv.DictWriter(handle, fieldnames=list(rows[0]))
-                    writer.writeheader()
-                    writer.writerows(rows)
+            # A header-only ledger is still an artifact for a run with no eligible buys.
+            fieldnames = list(rows[0]) if rows else PURCHASE_LEDGER_FIELDS
+            with (output_dir / f"{stem}-{suffix}.csv").open(
+                "w", newline="", encoding="utf-8"
+            ) as handle:
+                writer = csv.DictWriter(handle, fieldnames=fieldnames)
+                writer.writeheader()
+                writer.writerows(rows)
 
 
 def main() -> None:

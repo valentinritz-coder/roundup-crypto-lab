@@ -4,6 +4,7 @@ from decimal import Decimal
 import pandas as pd
 import pytest
 
+from roundup_crypto_lab.investment_plan import InvestmentPlan, contribution_schedule
 from roundup_crypto_lab.passive_benchmarks import (
     buy_and_hold,
     dca,
@@ -301,3 +302,184 @@ def test_deployment_buckets_are_deterministic_when_same_timestamp_event_order_ch
     initial = CashFlowEvent(timestamp, Decimal("200"), "initial")
     monthly = CashFlowEvent(timestamp, Decimal("40"), "monthly")
     assert deployment_buckets((initial, monthly)) == deployment_buckets((monthly, initial))
+
+
+def benchmark(result, method: str = "immediate") -> dict:
+    return next(row for row in result["benchmarks"] if row["deployment_method"] == method)
+
+
+def test_hand_calculated_fee_fixture_has_exact_auditable_ledger(tmp_path) -> None:
+    """100 EUR at 10 with a 10% fee buys 9 units and finishes worth 90 EUR."""
+    write_candles(
+        tmp_path,
+        candles(
+            [
+                (datetime(2026, 1, 1, hour, tzinfo=UTC), 10, 10, 10, 10, 1)
+                for hour in (0, 4, 8, 12, 16, 20)
+            ]
+        ),
+    )
+    result = run_passive_benchmarks(
+        tmp_path, ["BTC/EUR"], "4h", "20260101-20260102", "100", "1", "0.1", 23
+    )
+    row = benchmark(result)
+    ledger = row["purchase_ledger"]
+
+    assert row["total_contributions"] == 100.0
+    assert row["fees_paid"] == 10.0
+    assert row["quantity"] == 9.0
+    assert Decimal(row["average_entry_price_exact"]) == Decimal("100") / Decimal("9")
+    assert row["final_value"] == 90.0
+    assert row["profit_total_abs"] == -10.0
+    assert row["profit_total"] == -0.1
+    assert row["max_drawdown_time_weighted"] == 0.0
+    assert ledger == [
+        {
+            "contributed_at": "2026-01-01T00:00:00+00:00",
+            "scheduled_at": "2026-01-01T00:00:00+00:00",
+            "executed_at": "2026-01-01T00:00:00+00:00",
+            "execution_price": "10",
+            "gross_contribution": "100",
+            "fee_paid": "10.0",
+            "net_contribution": "90.0",
+            "quantity": "9.0",
+            "cumulative_quantity": "9.0",
+            "cumulative_gross_contributions": "100",
+            "cumulative_fees": "10.0",
+            "residual_cash": "0",
+            "marked_to_market_portfolio_value": "90.0",
+        }
+    ]
+
+
+@pytest.mark.parametrize("fee", ["0", "0.1"])
+def test_constant_price_invariants_and_fee_loss_only(tmp_path, fee: str) -> None:
+    write_candles(
+        tmp_path,
+        prepared_candles(datetime(2026, 1, 1, tzinfo=UTC), datetime(2026, 1, 2, 20, tzinfo=UTC)),
+    )
+    result = run_passive_benchmarks(
+        tmp_path, ["BTC/EUR"], "4h", "20260101-20260103", "100", "40", fee, 2
+    )
+    for row in result["benchmarks"]:
+        total = Decimal(str(row["total_contributions"]))
+        final = Decimal(str(row["final_value"]))
+        fees = Decimal(str(row["fees_paid"]))
+        assert final == total - fees
+        assert (
+            row["max_drawdown_time_weighted"] == 0.0
+            if fee == "0"
+            else row["max_drawdown_time_weighted"] >= 0
+        )
+        assert Decimal(str(row["capital_invested"])) + Decimal(str(row["cash_balance"])) == total
+        cumulative_quantity = Decimal("0")
+        for entry in row["purchase_ledger"]:
+            gross = Decimal(entry["gross_contribution"])
+            net = Decimal(entry["net_contribution"])
+            charged = Decimal(entry["fee_paid"])
+            quantity = Decimal(entry["quantity"])
+            assert gross == net + charged
+            assert quantity == net / Decimal(entry["execution_price"])
+            assert Decimal(entry["cumulative_quantity"]) >= cumulative_quantity
+            cumulative_quantity = Decimal(entry["cumulative_quantity"])
+
+
+def test_contribution_neutral_drawdown_is_not_erased_by_deposit(tmp_path) -> None:
+    frame = prepared_candles(datetime(2026, 1, 1, tzinfo=UTC), datetime(2026, 1, 3, 20, tzinfo=UTC))
+    frame.loc[frame["date"] >= pd.Timestamp("2026-01-02T00:00:00Z"), ["open", "close"]] = 50
+    write_candles(tmp_path, frame)
+    result = run_passive_benchmarks(
+        tmp_path, ["BTC/EUR"], "4h", "20260101-20260104", "100", "100", "0", 2
+    )
+    row = benchmark(result)
+    jan2 = next(
+        point for point in row["equity_curve"] if point["timestamp"].startswith("2026-01-02")
+    )
+    assert jan2["portfolio_value"] == 150.0
+    assert jan2["time_weighted_share_value"] == 0.5
+    assert row["max_drawdown_time_weighted"] == 0.5
+
+
+def test_purchase_ledger_csv_is_written_even_without_buys(tmp_path) -> None:
+    write_candles(
+        tmp_path,
+        prepared_candles(datetime(2026, 1, 2, tzinfo=UTC), datetime(2026, 1, 2, 20, tzinfo=UTC)),
+    )
+    result = run_passive_benchmarks(
+        tmp_path, ["BTC/EUR"], "4h", "20260102-20260103", "100", "40", "0", 23
+    )
+    from roundup_crypto_lab.passive_benchmarks import write_details
+
+    output = tmp_path / "artifacts"
+    write_details(result, output)
+    ledger = output / "weekly-dca-btc-eur-purchase-ledger.csv"
+    assert ledger.read_text(encoding="utf-8").splitlines() == [
+        "contributed_at,scheduled_at,executed_at,execution_price,gross_contribution,fee_paid,"
+        "net_contribution,quantity,cumulative_quantity,cumulative_gross_contributions,"
+        "cumulative_fees,residual_cash,marked_to_market_portfolio_value"
+    ]
+
+
+@pytest.mark.parametrize(
+    ("prices", "expected_profit_sign"),
+    [([100, 125, 150], 1), ([150, 125, 100], -1), ([100, 50, 100], 0)],
+    ids=["rising", "falling", "v-shaped"],
+)
+def test_deterministic_synthetic_price_paths(
+    tmp_path, prices: list[int], expected_profit_sign: int
+) -> None:
+    """Small rising, falling, and V-shaped fixtures protect valuation semantics."""
+    dates = pd.date_range(datetime(2026, 1, 1, tzinfo=UTC), periods=18, freq="4h")
+    frame = candles(
+        [
+            (at, prices[index // 6], prices[index // 6], prices[index // 6], prices[index // 6], 1)
+            for index, at in enumerate(dates)
+        ]
+    )
+    write_candles(tmp_path, frame)
+    row = benchmark(
+        run_passive_benchmarks(
+            tmp_path, ["BTC/EUR"], "4h", "20260101-20260104", "100", "1", "0", 23
+        )
+    )
+    profit = Decimal(str(row["profit_total_abs"]))
+    assert profit == 0 if expected_profit_sign == 0 else profit * expected_profit_sign > 0
+    assert Decimal(row["final_value_exact"]) == (
+        Decimal(row["quantity_exact"]) * Decimal(row["final_price_exact"])
+        + Decimal(row["cash_balance_exact"])
+    )
+
+
+def test_investment_plan_total_covers_partial_months_and_clipped_short_month() -> None:
+    """The plan, not candle execution, is the source of gross investor contributions."""
+    plan = InvestmentPlan("200", "40", "0", 31)
+    events = contribution_schedule(
+        plan,
+        datetime(2026, 1, 30, tzinfo=UTC),
+        datetime(2026, 3, 1, tzinfo=UTC),
+    )
+    assert [(event.contributed_at.date().isoformat(), event.amount) for event in events] == [
+        ("2026-01-30", Decimal("200")),
+        ("2026-01-31", Decimal("40")),
+        ("2026-02-28", Decimal("40")),
+    ]
+    assert sum((event.amount for event in events), Decimal("0")) == Decimal("280")
+
+
+@pytest.mark.parametrize(
+    ("method", "expected_drawdown"),
+    [("immediate", 0.0), ("daily_dca", 1 / 19), ("weekly_dca", 0.0)],
+)
+def test_constant_price_fee_drawdown_uses_first_post_execution_peak(
+    tmp_path, method: str, expected_drawdown: float
+) -> None:
+    """An initial fee establishes the first observed peak; later fees draw down from it."""
+    write_candles(
+        tmp_path,
+        prepared_candles(datetime(2026, 1, 5, tzinfo=UTC), datetime(2026, 1, 6, 20, tzinfo=UTC)),
+    )
+    result = run_passive_benchmarks(
+        tmp_path, ["BTC/EUR"], "4h", "20260105-20260107", "100", "1", "0.1", 23
+    )
+    row = benchmark(result, method)
+    assert row["max_drawdown_time_weighted"] == pytest.approx(expected_drawdown)
