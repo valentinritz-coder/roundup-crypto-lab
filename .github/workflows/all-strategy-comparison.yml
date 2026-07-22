@@ -67,14 +67,14 @@ jobs:
           for strategy in RoundupBreakoutStrategy RoundupBreakoutTrendStrategy RoundupBreakoutAtrStrategy RoundupBreakoutAtrVolumeStrategy RoundupTrendPullbackStrategy RoundupConfirmedBreakoutStrategy RoundupVolatilitySqueezeStrategy; do
             python -m roundup_crypto_lab.freqtrade_active --data-file "user_data/data/kraken/${PAIR//\//_}-4h.feather" --pair "$PAIR" --strategy "$strategy" --timerange "$TIMERANGE" --capital-mode "$CAPITAL_MODE" --initial-capital "$INITIAL_CAPITAL" --monthly-budget "$MONTHLY_BUDGET" --contribution-day "$CONTRIBUTION_DAY" --fee "$FEE" --config-file artifacts/pair-config.json --output "artifacts/results/active-$strategy.json"
           done
-      - name: Validate one-shot native differential
+      - name: Diagnose one-shot native differential
         if: ${{ inputs.capital_mode == 'one_shot_capital' }}
         run: |
           for spec in 'RoundupBreakoutStrategy breakout-baseline' 'RoundupBreakoutTrendStrategy breakout-trend' 'RoundupBreakoutAtrStrategy breakout-atr' 'RoundupBreakoutAtrVolumeStrategy breakout-atr-volume' 'RoundupTrendPullbackStrategy trend-pullback' 'RoundupConfirmedBreakoutStrategy confirmed-breakout' 'RoundupVolatilitySqueezeStrategy volatility-squeeze'; do
             set -- $spec
-            python -m roundup_crypto_lab.one_shot_differential --native-zip "artifacts/results/$2.zip" --active "artifacts/results/active-$1.json" --strategy "$1" --output "artifacts/results/differential-$1.json"
+            python -m roundup_crypto_lab.one_shot_diagnostic --native-zip "artifacts/results/$2.zip" --active "artifacts/results/active-$1.json" --strategy "$1" --output "artifacts/results/differential-$1.json"
           done
-          python -m roundup_crypto_lab.one_shot_differential combine --result artifacts/results/differential-RoundupBreakoutStrategy.json --result artifacts/results/differential-RoundupBreakoutTrendStrategy.json --result artifacts/results/differential-RoundupBreakoutAtrStrategy.json --result artifacts/results/differential-RoundupBreakoutAtrVolumeStrategy.json --result artifacts/results/differential-RoundupTrendPullbackStrategy.json --result artifacts/results/differential-RoundupConfirmedBreakoutStrategy.json --result artifacts/results/differential-RoundupVolatilitySqueezeStrategy.json --output artifacts/results/one-shot-differential.json
+          python -m roundup_crypto_lab.one_shot_diagnostic combine --result artifacts/results/differential-RoundupBreakoutStrategy.json --result artifacts/results/differential-RoundupBreakoutTrendStrategy.json --result artifacts/results/differential-RoundupBreakoutAtrStrategy.json --result artifacts/results/differential-RoundupBreakoutAtrVolumeStrategy.json --result artifacts/results/differential-RoundupTrendPullbackStrategy.json --result artifacts/results/differential-RoundupConfirmedBreakoutStrategy.json --result artifacts/results/differential-RoundupVolatilitySqueezeStrategy.json --output artifacts/results/one-shot-differential.json
       - name: Generate, validate, and summarize comparison
         env: {TIMERANGE: '${{ inputs.timerange }}', TIMEFRAME: '${{ inputs.timeframe }}', PAIR: '${{ inputs.pair }}', CAPITAL_MODE: '${{ inputs.capital_mode }}'}
         run: |
@@ -85,7 +85,7 @@ jobs:
           if [ "$CAPITAL_MODE" = one_shot_capital ]; then differential_arg=(--one-shot-differential artifacts/results/one-shot-differential.json); fi
           python -m roundup_crypto_lab.active_comparison --native-comparison artifacts/results/all-strategies-comparison.json --metadata artifacts/results/metadata.json --active-result artifacts/results/active-RoundupBreakoutStrategy.json --active-result artifacts/results/active-RoundupBreakoutTrendStrategy.json --active-result artifacts/results/active-RoundupBreakoutAtrStrategy.json --active-result artifacts/results/active-RoundupBreakoutAtrVolumeStrategy.json --active-result artifacts/results/active-RoundupTrendPullbackStrategy.json --active-result artifacts/results/active-RoundupConfirmedBreakoutStrategy.json --active-result artifacts/results/active-RoundupVolatilitySqueezeStrategy.json --output artifacts/results/controlled-comparison.json --summary artifacts/results/job-summary.md "${differential_arg[@]}"
           cat artifacts/results/job-summary.md >> "$GITHUB_STEP_SUMMARY"
-      - if: success()
+      - if: always()
         uses: actions/upload-artifact@v4
         with:
           name: 'all-strategy-comparison-${{ github.run_id }}'
