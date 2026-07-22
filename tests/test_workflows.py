@@ -45,3 +45,24 @@ def test_seed_uses_non_strict_validation_and_post_update_workflows_remain_strict
     assert "--timerange" in update and "--days 8" in update
     assert "strftime('%Y%m%d')" not in update
     assert all("python -m pip check" in text for text in (seed, update, validation))
+
+
+def test_freqtrade_validation_analysis_contract() -> None:
+    validation = content("freqtrade-validation.yml")
+    assert 'defaults: {run: {shell: "bash -eo pipefail {0}"}}' in validation
+    assert validation.count("--config user_data/config.json") >= 6
+    lookahead = validation.split("- name: Run lookahead analysis", 1)[1].split(
+        "- name: Validate lookahead report", 1
+    )[0]
+    assert "--config user_data/config-lookahead.json" in lookahead
+    for command in ("backtesting", "lookahead-analysis", "recursive-analysis"):
+        section = validation.split(command, 1)[1].split("\n      - name:", 1)[0]
+        assert "--timerange" in section
+    for name, log in (
+        ("baseline backtest", "backtest.txt"),
+        ("lookahead", "lookahead.txt"),
+        ("recursive", "recursive.txt"),
+    ):
+        assert f"Run {name}" in validation and f"artifacts/logs/{log}" in validation
+    assert "Validate lookahead report" in validation and "Validate recursive report" in validation
+    assert "if: always()" in validation and "actions/upload-artifact@v4" in validation

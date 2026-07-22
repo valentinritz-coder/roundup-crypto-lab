@@ -35,7 +35,7 @@ Two workflows are included:
 - **Python CI** runs Ruff and the unit tests.
 - **Freqtrade validation** installs Freqtrade on an ephemeral Ubuntu runner, downloads public
   Kraken trades, converts them into 4-hour candles, discovers the strategy, runs a backtest,
-  checks look-ahead and recursive indicator behavior, then performs a short dry-run startup smoke
+  strictly parses look-ahead and recursive reports, records a machine-readable negative baseline, then performs a short dry-run startup smoke
   test.
 
 The Freqtrade workflow can be started manually from **Actions → Freqtrade validation → Run
@@ -61,6 +61,7 @@ the public Kraken history are documented in
 ```text
 src/roundup_crypto_lab/        Exact-cent roundup and contribution logic
 user_data/config.json          Freqtrade dry-run configuration
+user_data/config-lookahead.json Look-ahead-only market-pricing override
 user_data/strategies/          Freqtrade strategies
 data/examples/                 Harmless example bank exports
 docs/                          Architecture, risk policy, roadmap

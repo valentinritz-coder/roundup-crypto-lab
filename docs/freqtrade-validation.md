@@ -130,3 +130,25 @@ Official Kraken 240-minute archive rows are seven columns: `timestamp, open, hig
 volume, trades` (or `count`). They are not the eight-column API-style VWAP rows. The importer maps
 archive volume from column six and validates the final trade-count column; explicit eight-column
 API-style compatibility maps volume from column seven instead.
+
+## Strict analysis reports and baseline
+
+Freqtrade 2026.6 forces look-ahead entries and exits to market orders. Market entry orders require
+`entry_pricing.price_side = "other"`; normal dry-run/backtest configuration deliberately keeps
+`"same"` and limit orders. `user_data/config-lookahead.json` is therefore supplied as a second
+`--config` **only** to `lookahead-analysis`; it overrides the entry/exit pricing fields needed by
+that temporary market-order analysis and does not alter normal backtests, recursive analysis, or
+the smoke test.
+
+The workflow parses the 2026.6 look-ahead CSV, requires the strategy row and required bias columns,
+and fails on any entry, exit, or indicator bias. Recursive analysis emits a text report rather than
+an export: the validator requires all 120/240/480 startup values and accepts only its explicit
+no-variance result or an all-zero table; any reported variation fails. Backtest exports are parsed
+into `baseline-summary.json`, which records the timerange, pairs, metrics, Freqtrade/repository
+commits, and cache manifest. Negative profit never fails that validation.
+
+A dated cache-backed run (2026-07-21; BTC/EUR 5,596 and ETH/EUR 5,595 4h candles; backtest
+2026-01-22 through 2026-07-21) observed 32 trades, -31.70% total profit, 15.6% win rate, 0.18
+profit factor, and 31.70% drawdown. These are a reproducible baseline for that cache and timerange,
+not a promised future result or a performance target. Only after this validation is green should
+the next phase, experimental strategy research, begin.

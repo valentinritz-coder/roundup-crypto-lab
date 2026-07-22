@@ -41,23 +41,44 @@ jobs:
           python -m pip install --no-deps -e .freqtrade-src
           python -m pip install --no-deps -e .freqtrade-src/ft_client
           python -m pip check
-      - name: Verify data and calculate common-overlap timerange
+      - name: Validate prepared Kraken data
         if: steps.restore.outputs.cache-hit != ''
         run: |
           mkdir -p artifacts/logs artifacts/results
           python -c 'from pathlib import Path; from roundup_crypto_lab.kraken_ohlcv import common_timerange; print(common_timerange(Path("user_data/data/kraken")))' | tee artifacts/timerange.txt
           freqtrade list-data --config user_data/config.json --show-timerange |& tee artifacts/logs/list-data.txt
-      - name: Validate and analyze explicit timerange
+      - name: Discover strategy and configuration
+        if: steps.restore.outputs.cache-hit != ''
+        run: |
+          freqtrade list-strategies --config user_data/config.json |& tee artifacts/logs/list-strategies.txt
+          freqtrade show-config --config user_data/config.json |& tee artifacts/logs/show-config.txt
+      - name: Run baseline backtest
         if: steps.restore.outputs.cache-hit != ''
         run: |
           TIMERANGE=$(tail -1 artifacts/timerange.txt)
-          freqtrade list-strategies --config user_data/config.json |& tee artifacts/logs/list-strategies.txt
-          freqtrade show-config --config user_data/config.json |& tee artifacts/logs/show-config.txt
           freqtrade backtesting --config user_data/config.json --strategy RoundupBreakoutStrategy --timeframe 4h --timerange "$TIMERANGE" --export trades --export-directory artifacts/results |& tee artifacts/logs/backtest.txt
-          find artifacts/results -type f -name 'backtest-result*' -print | tee artifacts/results/generated-backtest-files.txt
-          test -s artifacts/results/generated-backtest-files.txt
-          freqtrade lookahead-analysis --config user_data/config.json --strategy RoundupBreakoutStrategy --timeframe 4h --timerange "$TIMERANGE" --minimum-trade-amount 1 --targeted-trade-amount 10 --lookahead-analysis-exportfilename artifacts/results/lookahead.csv |& tee artifacts/logs/lookahead.txt
+      - name: Validate backtest artifact
+        if: steps.restore.outputs.cache-hit != ''
+        run: |
+          BACKTEST=$(find artifacts/results -maxdepth 1 -type f -name 'backtest-result*.zip' -print -quit)
+          test -n "$BACKTEST"
+          python -c 'from pathlib import Path; from roundup_crypto_lab.freqtrade_reports import create_baseline_summary, validate_baseline_summary; create_baseline_summary(Path("'"$BACKTEST"'"), Path("artifacts/results/baseline-summary.json"), timerange=Path("artifacts/timerange.txt").read_text().strip(), pairs=["BTC/EUR", "ETH/EUR"], timeframe="4h", freqtrade_version="'"$FREQTRADE_VERSION"'", freqtrade_commit="'"$FREQTRADE_COMMIT"'", repository_commit="'"$(git rev-parse HEAD)"'", cache_manifest=Path("user_data/data/kraken/kraken-ohlcv-manifest.json")); validate_baseline_summary(Path("artifacts/results/baseline-summary.json"))'
+      - name: Run lookahead analysis
+        if: steps.restore.outputs.cache-hit != ''
+        run: |
+          TIMERANGE=$(tail -1 artifacts/timerange.txt)
+          freqtrade lookahead-analysis --config user_data/config.json --config user_data/config-lookahead.json --strategy RoundupBreakoutStrategy --timeframe 4h --timerange "$TIMERANGE" --minimum-trade-amount 1 --targeted-trade-amount 10 --lookahead-analysis-exportfilename artifacts/results/lookahead.csv |& tee artifacts/logs/lookahead.txt
+      - name: Validate lookahead report
+        if: steps.restore.outputs.cache-hit != ''
+        run: python -c 'from pathlib import Path; from roundup_crypto_lab.freqtrade_reports import validate_lookahead_report; validate_lookahead_report(Path("artifacts/results/lookahead.csv"))'
+      - name: Run recursive analysis
+        if: steps.restore.outputs.cache-hit != ''
+        run: |
+          TIMERANGE=$(tail -1 artifacts/timerange.txt)
           freqtrade recursive-analysis --config user_data/config.json --strategy RoundupBreakoutStrategy --timeframe 4h --timerange "$TIMERANGE" --startup-candle 120 240 480 |& tee artifacts/logs/recursive.txt
+      - name: Validate recursive report
+        if: steps.restore.outputs.cache-hit != ''
+        run: python -c 'from pathlib import Path; from roundup_crypto_lab.freqtrade_reports import validate_recursive_report; validate_recursive_report(Path("artifacts/logs/recursive.txt"))'
       - name: Dry-run startup smoke test
         if: steps.restore.outputs.cache-hit != ''
         run: |
