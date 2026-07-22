@@ -1,16 +1,18 @@
 ## Research Philosophy
 
-The purpose of this repository is not to find strategies that look profitable.
+The purpose of this repository is not to discover strategies that merely look profitable.
 
 It is to eliminate strategies that fail under rigorous testing.
 
-Every hypothesis is assumed to be wrong until it survives repeated attempts to falsify it across different assets, market regimes, parameter variations, fees and unseen data.
+Every hypothesis is assumed to be wrong until it survives repeated attempts to falsify it across different assets, market regimes, parameter ranges, fee assumptions, and unseen data.
 
 A beautiful equity curve proves nothing.
 
-A strategy that survives every attempt to break it has earned the right to be studied further.
+A strategy that survives every attempt to break it has not been proven correct. It has merely earned the right to be studied further.
 
-"The first principle is that you must not fool yourself, and you are the easiest person to fool." - Richard Feynman
+> “The first principle is that you must not fool yourself, and you are the easiest person to fool.”
+>
+> — Richard Feynman
 
 # Roundup Crypto Lab
 
