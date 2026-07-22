@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from decimal import Decimal
-
 from roundup_crypto_lab.active_common import (
     OPEN_POSITION_STATES,
     SCHEMA_VERSION,
