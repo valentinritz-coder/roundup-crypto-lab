@@ -31,3 +31,43 @@ python -m roundup_crypto_lab.passive_benchmarks \
 `--daily-contribution` and `--weekly-contribution` (including their `=VALUE` forms) are removed and fail with a migration message; use `--monthly-budget`. The former public `buy_and_hold()` and `dca()` helpers also fail with a migration error rather than recreating unfair independent budgets.
 
 The engine reads prepared Kraken Feather data only, using the `4h` timeframe. It remains dry-run, spot-only, long-only research and models no slippage, taxes, deposit fees, withdrawal fees, liquidity limits, or sales.
+
+## Auditable accounting equations
+
+All symbols below are exact `Decimal` values; timestamps are UTC.  For purchase *i*, let
+`Gᵢ` be `gross_contribution`, `f` the configured fee ratio, and `Pᵢ` the first eligible
+candle's open. The engine uses these equations exactly:
+
+- **Fee:** `Fᵢ = Gᵢ × f`.
+- **Net amount invested:** `Nᵢ = Gᵢ − Fᵢ = Gᵢ × (1 − f)`.
+- **Acquired quantity:** `Qᵢ = Nᵢ / Pᵢ`.
+- **Cumulative quantity after i:** `Qcumᵢ = Σ Qⱼ`.
+- **Cumulative gross contributions at time t:** `C(t) = Σ` investor events credited by t.
+- **Cumulative fees:** `Fcumᵢ = Σ Fⱼ`.
+- **Residual cash:** `Rᵢ = Rᵢ₋₁ + credited cash − Gᵢ`. Thus a fee is paid from the
+  gross order and reduces asset received; it does not create a second cash debit.
+- **Average entry price:** `Σ Gⱼ / Σ Qⱼ`. This is the *gross-cost basis per acquired
+  unit*, so it includes purchase fees and is deliberately not the average execution price.
+- **Final value:** `Vfinal = Qcum × Plast_close + Rfinal`.
+- **Absolute profit:** `Vfinal − Cfinal`; **profit percentage:**
+  `(Vfinal − Cfinal) / Cfinal`.
+
+Raw portfolio drawdown is `max_t ((peak(V) − V(t)) / peak(V))`, where
+`peak(V) = max_{u≤t} V(u)`. It is reported for transparency but deposits can change it.
+The contribution-neutral drawdown instead applies the same equation to a time-weighted
+unit value `U`. Before each contribution at a candle open, issue `contribution / Uopen`
+units, where `Uopen = portfolio_open / units_outstanding` (and `Uopen = 1` for the first
+contribution). Purchases issue no units. After the close, `Uclose = Vclose / units_outstanding`.
+This removes investor cash-flow effects: a contribution cannot create a positive return or
+make an existing drawdown better merely by arriving.
+
+## Purchase-ledger artifacts
+
+Every benchmark JSON contains `purchase_ledger`; its Decimal fields are strings, preserving
+exact values for independent recomputation. `average_entry_price_exact` likewise preserves the
+exact derived cost basis alongside the legacy numeric summary value. When `--output-dir` is supplied, every benchmark
+also writes `<benchmark>-<pair>-purchase-ledger.csv` (with headers even if there were no
+eligible buys). Each record includes contribution, scheduled, and execution timestamps;
+execution price; gross, fee, and net amounts; acquired and cumulative quantity; cumulative
+gross contributions and fees; residual cash; and close-marked portfolio value. The legacy
+numeric `purchases` field remains for report compatibility.
