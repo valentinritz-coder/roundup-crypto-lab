@@ -29,6 +29,7 @@ from roundup_crypto_lab.active_backtests import (
     WalletState,
     run_active_backtest,
 )
+from roundup_crypto_lab.active_comparison import build_active_result, validate_active_result
 from roundup_crypto_lab.freqtrade_differential import config_digest, validate_execution_scope
 from roundup_crypto_lab.investment_plan import InvestmentPlan
 from roundup_crypto_lab.passive_benchmarks import parse_timerange
@@ -243,6 +244,7 @@ def run_freqtrade_strategy(
                 "selected_pair": pair,
                 "config_digest": config_digest(config),
                 "timeframe": config["timeframe"],
+                "generated_config": str(config_file),
             },
         }
     )
@@ -298,8 +300,25 @@ def main() -> None:
         pair=args.pair,
         config_file=args.config_file,
     )
+    payload = build_active_result(
+        result,
+        strategy=args.strategy,
+        pair=args.pair,
+        timeframe=config["timeframe"],
+        timerange=args.timerange,
+        execution_model="freqtrade-strategy-signals/causal-single-position-v1",
+        effective_settings={
+            "fee_ratio": args.fee,
+            "tradable_balance_ratio": str(config["tradable_balance_ratio"]),
+            "stake_amount": config["stake_amount"],
+            "stoploss": str(config["stoploss"]),
+        },
+    )
+    validate_active_result(
+        payload, strategy=args.strategy, pair=args.pair, capital_mode=args.capital_mode
+    )
     args.output.parent.mkdir(parents=True, exist_ok=True)
-    args.output.write_text(json.dumps(result, default=_json, indent=2) + "\n", encoding="utf-8")
+    args.output.write_text(json.dumps(payload, default=_json, indent=2) + "\n", encoding="utf-8")
 
 
 if __name__ == "__main__":

@@ -172,7 +172,7 @@ def test_all_strategy_comparison_workflow_contract() -> None:
     ):
         assert workflow.count(f"run_backtest {name}") == 1
         assert f"--result {name}=" in workflow
-    assert workflow.count("--config user_data/config.json") >= 1
+    assert workflow.count("--config artifacts/pair-config.json") >= 1
     backtests = workflow.split("run_backtest()", 1)[1].split(
         "run_backtest RoundupBreakoutStrategy", 1
     )[0]
@@ -184,7 +184,7 @@ def test_all_strategy_comparison_workflow_contract() -> None:
     assert 'test "${#zips[@]}" -eq 1' in backtests
     assert 'mv "${zips[0]}" "artifacts/results/$result_name.zip"' in backtests
     assert "-name 'backtest-result-*.meta.json' -delete" in backtests
-    assert "GITHUB_STEP_SUMMARY" in workflow and "if: always()" in workflow
+    assert "GITHUB_STEP_SUMMARY" in workflow and "if: success()" in workflow
 
 
 def test_passive_benchmarks_workflow_contract() -> None:

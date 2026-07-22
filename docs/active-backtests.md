@@ -9,53 +9,40 @@ The repository-owned adapter adds recurring investor deposits to an auditable, s
 3. The fixed strategy stop starts at entry price times `1 + stoploss`. The supported custom stop is the repository's `open - 2 × ATR14`; ATR is taken only from the prior completed candle and a stop can only tighten.
 4. Before a signal exit, a stop is tested against the candle: an open at/below stop fills at open (gap-through); otherwise a low at/below stop fills at the stop. Thus stop-loss has deterministic priority over an overlapping exit signal.
 5. Entry and exit fees use the investment plan fee ratio. Closing a trade resets current deployed capital; cumulative gross deployed stays historical.
-6. After execution, the candle close marks open crypto. An end-open trade is retained with `exit_reason: null` and `end_of_range_position: open_marked_at_final_close`; it is never force-closed.
+6. After execution, `mark_price` records the candle close used to value open crypto. An end-open trade is retained with `exit_reason: null` and `open_position_state: open_marked_at_final_close`; it is never silently force-closed.
 
-This is deliberately a narrow OHLC convention, not a simulation of order books, limit-order timeouts, or multi-asset allocation. It matches the relevant strategies' spot, long-only, one-position, fixed/ATR stop and exit-signal scope while keeping external contributions separate from strategy return.
+This is deliberately a narrow OHLC convention, not a simulation of order books, limit-order timeouts, or multi-asset allocation.
 
 ## Native differential scope
 
-The differential harness generates (rather than edits) a temporary native configuration from
-`user_data/config.json`. It replaces the whitelist with exactly one selected pair (`BTC/EUR` or
-`ETH/EUR`) and records a canonical SHA-256 configuration digest. Before an adapter invocation, the
-data filename, strategy timeframe metadata, and generated native whitelist must agree. This is an
-offline fixture contract: it does not download market data.
+The differential harness generates a temporary single-pair native configuration from `user_data/config.json`, records a canonical SHA-256 configuration digest, and compares only the lifecycle fields owned by the adapter.
 
-The comparison is deliberately limited to the lifecycle fields implemented by the adapter: entry
-and exit times/prices, gross stake, quantity (with an explicit `1e-8` decimal rounding tolerance),
-entry/exit fees, exit reason, and final free cash, crypto mark, and equity. Any other Freqtrade
-behavior—including order-book, limit-order, and unsupported lifecycle behavior—is outside this
-claim. Passing this differential test therefore does **not** establish general Freqtrade
-equivalence.
+The one-shot proof compares entry and exit timestamps and prices, gross stake, quantity, entry and exit fees, normalized exit reason, final free cash, final crypto value, and final equity. Native exported quantity and its directly derived fees use the documented `1e-8` tolerance. Adapter stake is normalized to Freqtrade's eight-decimal export representation; prices, timestamps, reasons, and the normalized stake remain exact comparisons.
 
-The executable reference is `python -m pytest -vv tests/test_freqtrade_differential.py`. It writes
-150 deterministic BTC/EUR 4-hour candles to a temporary Freqtrade Feather directory, runs
-`python -m freqtrade backtesting --config <temporary-config> --datadir <temporary-datadir>
---strategy RoundupBreakoutStrategy --timeframe 4h --timerange 20260121-20260126 --fee 0.005
---export trades`, then runs the adapter with `one_shot_capital`. The fixture has 120 warm-up
-candles, a breakout followed by an `exit_signal`, and a second breakout whose entry candle reaches
-the fixed -12% stop. The test disables the strategy's ATR custom-stop through the generated
-configuration only; the strategy source is unchanged.
+Accepted native reasons are `exit_signal`, `close_below_sma20`, `stop_loss`, and `trailing_stop_loss`. The repository exit tag normalizes to `exit_signal`; `trailing_stop_loss` normalizes to `stop_loss`. Every other reason fails validation.
 
-Native `open_date`, `close_date`, `open_rate`, `close_rate`, `stake_amount`, `amount`,
-`fee_open`, `fee_close`, and `exit_reason` normalize respectively to adapter entry/exit timestamps,
-prices, gross stake, quantity, fees, and reason. Native stake excludes entry fee, as does the
-adapter stake; both wallets debit stake plus the entry fee. `trailing_stop_loss` is normalized to
-`stop_loss`. Timestamps, prices, gross stake, and exit reasons compare exactly. The only tolerance
-is `1e-8` for native exported quantity and its directly derived entry/exit fees. The native reasons
-accepted by this scope are only `exit_signal`, the repository strategy's `close_below_sma20` exit
-tag, `stop_loss`, and `trailing_stop_loss`; `close_below_sma20` normalizes to `exit_signal` and the
-latter normalizes to `stop_loss`, while every other native reason fails validation.
+The workflow's differential scope requires both native and active positions to be closed at timerange end. A force-exit or an open marked position is rejected explicitly rather than being represented as proven equivalent. Passing the differential therefore does **not** establish general Freqtrade equivalence.
 
-The differential proof is only for `one_shot_capital`. Native Freqtrade has no equivalent for the
-adapter's investor contribution ledger; recurring mode remains separately tested with the real
-strategy and is not claimed as native-equivalent.
+Each strategy produces a `one-shot-differential/v1` result. The aggregator requires exactly the seven strategies in repository order, one common experiment ID, pair, timeframe, timerange and capital mode, a `passed` status, and the expected checked-field set. The combined artifact is validated again before it is embedded in `controlled-comparison/v1` and displayed in the GitHub job summary.
 
-## Remaining work for issue #18
+## Controlled active comparison
 
-This PR completes the execution adapter only; it does **not** complete issue #18. The adapter is
-not integrated into the controlled **All strategy comparison** workflow, its output is not published
-as a workflow artifact, and it is not part of the native-Freqtrade comparison schema. Those follow-up
-changes must preserve the explicit distinction between `one_shot_capital` and
-`recurring_monthly_contributions` and must compare contribution-neutral performance rather than a
-naive return against final contributed capital. Issue #18 remains open.
+The All strategy comparison workflow produces:
+
+- seven preserved native Freqtrade ZIP files;
+- seven `active-strategy-result/v1` JSON files;
+- `all-strategies-comparison.json`;
+- `metadata.json`, including the generated configuration path and digest;
+- `controlled-comparison.json`;
+- `job-summary.md`;
+- in one-shot mode only, seven individual differential results and one combined `one-shot-differential.json`.
+
+Before reporting or upload, validation reconciles experiment identity, pair, timeframe, timerange, capital mode, investment plan, fee, generated config and digest. It also validates every contribution, trade and equity row, including chronological boundaries, positive and finite amounts, wallet cash reconciliation, fee totals, non-overlapping single-position lifecycle, `equity = free_cash + crypto_value`, `investment_return = equity - cumulative_contributions`, mark-to-market crypto value, and final metrics.
+
+The **Native Freqtrade one-shot reference** and **Active investor cash-flow simulation** sections are separate result families. Recurring simulations are never ranked using native `profit_total`.
+
+`investment_return` is final equity minus all contributed capital. Dividing it by final contributions is misleading because contributions arrive on different dates. Contribution-neutral return and maximum drawdown instead use the time-weighted investor-share series. They are comparable only among runs with identical experiment parameters.
+
+## Manual workflow verification
+
+Run **All strategy comparison** with a supported pair and a timerange containing sufficient warm-up data. First use `recurring_monthly_contributions` and verify the seven native ZIPs, seven active JSON files, metadata, controlled comparison and summary. Then use `one_shot_capital` on a timerange that closes every position and verify the seven individual differential files, their combined artifact, seven `passed` statuses, and the one-shot differential table in the summary.
