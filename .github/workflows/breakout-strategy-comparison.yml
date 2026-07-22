@@ -36,18 +36,20 @@ jobs:
       - name: Restore Kraken cache
         uses: actions/cache/restore@v4
         id: restore-kraken
-        with: {path: user_data/data/kraken, key: 'kraken-ohlcv-v1-comparison-${{ github.run_id }}', restore-keys: kraken-ohlcv-v1-}
+        with: {path: user_data/data/kraken, key: 'kraken-ohlcv-v1-update-${{ github.run_id }}', restore-keys: kraken-ohlcv-v1-}
       - name: Validate workflow inputs
         env: {TIMERANGE: '${{ inputs.timerange }}', TIMEFRAME: '${{ inputs.timeframe }}'}
         run: |
           python -m roundup_crypto_lab.breakout_comparison validate-timerange "$TIMERANGE"
           test "$TIMEFRAME" = '4h'
-      - name: Validate prepared Kraken data
+      - name: Require a restored Kraken cache and validate prepared data
         env: {TIMERANGE: '${{ inputs.timerange }}'}
         run: |
-          test '${{ steps.restore-kraken.outputs.cache-hit }}' != '' || { echo 'No usable Kraken cache: run Update Kraken data first.'; exit 1; }
+          test '${{ steps.restore-kraken.outputs.cache-hit }}' != '' || { echo 'No Kraken cache was restored: run Update Kraken data first.'; exit 1; }
           python -m roundup_crypto_lab.breakout_comparison validate-data "$TIMERANGE" user_data/data/kraken |& tee artifacts-data-validation.txt
-          freqtrade list-data --config user_data/config.json --show-timerange |& tee list-data.txt
+          python -m freqtrade list-data \
+            --config user_data/config.json \
+            --show-timerange |& tee list-data.txt
       - name: Create output directories
         run: mkdir -p artifacts/results/{baseline,trend,atr,atr-volume} artifacts/logs
       - name: Backtest baseline
