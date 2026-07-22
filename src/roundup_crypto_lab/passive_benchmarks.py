@@ -130,7 +130,7 @@ def _drawdown(values: list[Decimal]) -> Decimal:
             peak = value
         if peak and peak > 0:
             maximum = max(maximum, (peak - value) / peak)
-    return maximum
+    return Decimal("0") if maximum < Decimal("1e-24") else maximum
 
 
 def _purchase_at_or_after(candles: pd.DataFrame, scheduled: datetime) -> tuple[int, Any] | None:
@@ -142,57 +142,91 @@ def _purchase_at_or_after(candles: pd.DataFrame, scheduled: datetime) -> tuple[i
 
 
 def _build_result(
-    benchmark: str, pair: str, candles: pd.DataFrame, purchases: list[dict[str, Any]], fee: Decimal
+    benchmark: str,
+    pair: str,
+    candles: pd.DataFrame,
+    events: tuple[CashFlowEvent, ...],
+    purchases: list[dict[str, Any]],
 ) -> dict[str, Any]:
-    quantity = sum((item["quantity"] for item in purchases), Decimal("0"))
-    invested = sum((item["gross_contribution"] for item in purchases), Decimal("0"))
-    fees = sum((item["fee_paid"] for item in purchases), Decimal("0"))
-    final_price = Decimal(str(candles.iloc[-1]["close"]))
-    final_value = quantity * final_price
-    equity, share_value, contribution_total, shares = [], Decimal("1"), Decimal("0"), Decimal("0")
-    by_index: dict[int, list[dict[str, Any]]] = {}
+    """Account contributions, then buys, then each candle close deterministically."""
+    purchases_by_index: dict[int, list[dict[str, Any]]] = {}
     for purchase in purchases:
-        by_index.setdefault(purchase["candle_index"], []).append(purchase)
-    running_quantity = Decimal("0")
+        purchases_by_index.setdefault(purchase["candle_index"], []).append(purchase)
+    for pending in purchases_by_index.values():
+        pending.sort(key=lambda row: (row["scheduled_at"], row["contributed_at"]))
+
+    quantity = cash = contributions = invested = fees = Decimal("0")
+    shares = Decimal("0")
+    share_value = Decimal("1")
+    event_index = 0
+    equity: list[dict[str, Any]] = []
     for index, candle in candles.iterrows():
-        for purchase in by_index.get(index, []):
-            open_value = running_quantity * Decimal(str(candle["open"]))
-            share_value = Decimal("1") if shares == 0 else open_value / shares
-            shares += purchase["net_contribution"] / share_value
-            contribution_total += purchase["gross_contribution"]
-            running_quantity += purchase["quantity"]
-        portfolio = running_quantity * Decimal(str(candle["close"]))
+        timestamp = candle["date"].to_pydatetime()
+        open_price = Decimal(str(candle["open"]))
+        # Contributions are credited before buys.  Existing holdings are marked at the
+        # candle open solely to issue neutral performance shares for the cash flow.
+        while event_index < len(events) and events[event_index].contributed_at <= timestamp:
+            event = events[event_index]
+            before_contribution = cash + quantity * open_price
+            share_value = Decimal("1") if shares == 0 else before_contribution / shares
+            shares += event.amount / share_value
+            cash += event.amount
+            contributions += event.amount
+            event_index += 1
+        for purchase in purchases_by_index.get(index, []):
+            if purchase["gross_contribution"] > cash and purchase[
+                "gross_contribution"
+            ] - cash > Decimal("1e-24"):
+                raise ValueError("purchase exceeds available investor cash")
+            cash = max(Decimal("0"), cash - purchase["gross_contribution"])
+            invested += purchase["gross_contribution"]
+            fees += purchase["fee_paid"]
+            quantity += purchase["quantity"]
+        crypto_value = quantity * Decimal(str(candle["close"]))
+        portfolio_value = cash + crypto_value
         if shares:
-            share_value = portfolio / shares
+            share_value = portfolio_value / shares
         equity.append(
             {
-                "timestamp": candle["date"].to_pydatetime().isoformat(),
-                "portfolio_value": portfolio,
-                "net_value": portfolio - contribution_total,
-                "cumulative_contributions": contribution_total,
+                "timestamp": timestamp.isoformat(),
+                "cash_balance": cash,
+                "crypto_value": crypto_value,
+                "portfolio_value": portfolio_value,
+                "net_value": portfolio_value - contributions,
+                "cumulative_contributions": contributions,
+                "capital_invested": invested,
+                "cumulative_fees_paid": fees,
                 "time_weighted_share_value": share_value,
             }
         )
+    total_contributions = sum((event.amount for event in events), Decimal("0"))
+    if contributions != total_contributions:
+        raise ValueError("timerange candles did not credit every contribution")
+    final_price = Decimal(str(candles.iloc[-1]["close"]))
+    final_crypto_value = quantity * final_price
+    final_value = cash + final_crypto_value
     average = invested / quantity if quantity else None
     raw_drawdown = _drawdown([row["portfolio_value"] for row in equity])
     time_weighted_drawdown = _drawdown([row["time_weighted_share_value"] for row in equity])
-    result = {
+    return {
         "benchmark": benchmark,
         "category": "benchmark",
         "pair": pair,
         "number_of_buys": len(purchases),
         "capital_invested": _number(invested),
-        "total_contributions": _number(invested),
+        "total_contributions": _number(total_contributions),
+        "cash_balance": _number(cash),
+        "cash_available": _number(cash),
         "fees_paid": _number(fees),
         "quantity": _number(quantity),
         "average_entry_price": _number(average),
         "final_price": _number(final_price),
+        "final_crypto_value": _number(final_crypto_value),
         "final_value": _number(final_value),
-        "profit_total_abs": _number(final_value - invested),
-        "profit_total": _number((final_value - invested) / invested),
-        "max_drawdown": _number(
-            raw_drawdown if benchmark == "BuyAndHold" else time_weighted_drawdown
-        ),
+        "portfolio_value": _number(final_value),
+        "profit_total_abs": _number(final_value - total_contributions),
+        "profit_total": _number((final_value - total_contributions) / total_contributions),
+        "max_drawdown": _number(raw_drawdown),
         "max_drawdown_raw_portfolio": _number(raw_drawdown),
         "max_drawdown_time_weighted": _number(time_weighted_drawdown),
         "profit_factor": None,
@@ -214,64 +248,16 @@ def _build_result(
             for row in purchases
         ],
     }
-    return result
 
 
-def buy_and_hold(
-    candles: pd.DataFrame, pair: str, initial_capital: Decimal, fee: Decimal
-) -> dict[str, Any]:
-    first = candles.iloc[0]
-    price = Decimal(str(first["open"]))
-    purchase = {
-        "scheduled_at": first["date"].to_pydatetime().isoformat(),
-        "executed_at": first["date"].to_pydatetime().isoformat(),
-        "execution_price": price,
-        "gross_contribution": initial_capital,
-        "fee_paid": initial_capital * fee,
-        "net_contribution": initial_capital * (Decimal("1") - fee),
-        "quantity": initial_capital * (Decimal("1") - fee) / price,
-        "candle_index": 0,
-    }
-    return _build_result("BuyAndHold", pair, candles, [purchase], fee)
+def buy_and_hold(*args: Any, **kwargs: Any) -> dict[str, Any]:
+    """Removed legacy API; use ``run_passive_benchmarks`` with ``InvestmentPlan`` inputs."""
+    raise ValueError("buy_and_hold is removed; use the shared InvestmentPlan benchmark runner")
 
 
-def dca(
-    candles: pd.DataFrame,
-    pair: str,
-    contribution: Decimal,
-    fee: Decimal,
-    *,
-    weekly_day: int | None = None,
-) -> dict[str, Any]:
-    start = candles.iloc[0]["date"].to_pydatetime().astimezone(UTC).date()
-    end = candles.iloc[-1]["date"].to_pydatetime().astimezone(UTC).date()
-    purchases: list[dict[str, Any]] = []
-    current = start
-    used_indexes: set[int] = set()
-    while current <= end:
-        if weekly_day is None or current.weekday() == weekly_day:
-            scheduled = datetime.combine(current, datetime.min.time(), tzinfo=UTC)
-            matched = _purchase_at_or_after(candles, scheduled)
-            if matched and matched[0] not in used_indexes:
-                index, candle = matched
-                price = Decimal(str(candle["open"]))
-                purchases.append(
-                    {
-                        "scheduled_at": scheduled.isoformat(),
-                        "executed_at": candle["date"].to_pydatetime().isoformat(),
-                        "execution_price": price,
-                        "gross_contribution": contribution,
-                        "fee_paid": contribution * fee,
-                        "net_contribution": contribution * (Decimal("1") - fee),
-                        "quantity": contribution * (Decimal("1") - fee) / price,
-                        "candle_index": index,
-                    }
-                )
-                used_indexes.add(index)
-        current += timedelta(days=1)
-    return _build_result(
-        "DailyDCA" if weekly_day is None else "WeeklyDCA", pair, candles, purchases, fee
-    )
+def dca(*args: Any, **kwargs: Any) -> dict[str, Any]:
+    """Removed legacy API that accepted an independent contribution amount."""
+    raise ValueError("dca is removed; use --monthly-budget with the shared InvestmentPlan")
 
 
 def _purchase(
@@ -323,7 +309,7 @@ def _deploy(
     purchases: list[dict[str, Any]] = []
     for position, event in enumerate(events):
         next_at = events[position + 1].contributed_at if position + 1 < len(events) else end
-        if method in {"immediate", "monthly_dca"}:
+        if method == "immediate":
             scheduled = [event.contributed_at]
         else:
             scheduled = [
@@ -331,10 +317,12 @@ def _deploy(
                 for date in _deployment_dates(event.contributed_at, next_at, method, weekly_day)
                 if date >= event.contributed_at
             ]
-            if not scheduled:
-                scheduled = [event.contributed_at]
-        amount = event.amount / len(scheduled)
-        for scheduled_at in scheduled:
+        if not scheduled:
+            continue
+        portion = event.amount / len(scheduled)
+        amounts = [portion] * (len(scheduled) - 1)
+        amounts.append(event.amount - sum(amounts, Decimal("0")))
+        for scheduled_at, amount in zip(scheduled, amounts, strict=True):
             purchase = _purchase(candles, event, scheduled_at, amount, plan.fee_ratio)
             if purchase is not None:
                 purchases.append(purchase)
@@ -373,14 +361,13 @@ def run_passive_benchmarks(
         ("BuyAndHold", "immediate"),
         ("DailyDCA", "daily_dca"),
         ("WeeklyDCA", "weekly_dca"),
-        ("MonthlyDCA", "monthly_dca"),
     )
     for pair in pairs:
         candles = load_kraken_candles(data_dir, pair, timeframe, timerange)
         pair_metadata[pair] = _candle_metadata(candles, timerange)
         for name, method in methods:
             purchases = _deploy(plan, events, candles, method, WEEKDAYS[weekly_day.lower()])
-            result = _build_result(name, pair, candles, purchases, plan.fee_ratio)
+            result = _build_result(name, pair, candles, events, purchases)
             result["deployment_method"] = method
             result["contribution_schedule"] = schedule_metadata
             benchmarks.append(result)
@@ -438,8 +425,12 @@ def main() -> None:
     parser.add_argument("--weekly-day", default="monday")
     parser.add_argument("--output-json", required=True, type=Path)
     parser.add_argument("--output-dir", type=Path)
-    legacy_options = {"--daily-contribution", "--weekly-contribution"}
-    if legacy_options.intersection(sys.argv[1:]):
+    legacy_options = ("--daily-contribution", "--weekly-contribution")
+    if any(
+        argument == option or argument.startswith(f"{option}=")
+        for argument in sys.argv[1:]
+        for option in legacy_options
+    ):
         parser.error(
             "--daily-contribution and --weekly-contribution were removed; use --monthly-budget"
         )
