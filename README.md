@@ -95,6 +95,22 @@ Expected roundups: EUR 0.68 and EUR 0.83.
 - SMA 20 exit.
 - ATR-based stop.
 
+## Breakout strategy experiments
+
+The unchanged `RoundupBreakoutStrategy` is the comparison baseline. Experimental variants add a
+trend filter, an ATR breakout-strength filter, and then a relative-volume filter; they are not
+presumed profitable. See [`docs/breakout-strategy-variants.md`](docs/breakout-strategy-variants.md)
+for the exact rules and reproducible comparison report.
+
+Run each strategy separately on the same timerange (replace `$TIMERANGE` with the selected window):
+
+```bash
+freqtrade backtesting --config user_data/config.json --strategy RoundupBreakoutStrategy --timeframe 4h --timerange "$TIMERANGE"
+freqtrade backtesting --config user_data/config.json --strategy RoundupBreakoutTrendStrategy --timeframe 4h --timerange "$TIMERANGE"
+freqtrade backtesting --config user_data/config.json --strategy RoundupBreakoutAtrStrategy --timeframe 4h --timerange "$TIMERANGE"
+freqtrade backtesting --config user_data/config.json --strategy RoundupBreakoutAtrVolumeStrategy --timeframe 4h --timerange "$TIMERANGE"
+```
+
 ## First Codex mission
 
 Use [`codex/001-bootstrap-and-validate.md`](codex/001-bootstrap-and-validate.md). Codex should
