@@ -11,6 +11,7 @@ import argparse
 import importlib
 import json
 import sys
+from collections.abc import Mapping
 from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path
@@ -22,6 +23,7 @@ from roundup_crypto_lab.active_backtests import (
     Action,
     Candle,
     CapitalMode,
+    LifecycleSettings,
     StrategyDecision,
     WalletState,
     run_active_backtest,
@@ -55,7 +57,8 @@ def strategy_decisions(
     pair: str,
     start: datetime,
     end: datetime,
-) -> tuple[list[Candle], dict[datetime, Action | None]]:
+    config: dict[str, Any] | None = None,
+) -> tuple[list[Candle], dict[datetime, Action | None], LifecycleSettings]:
     """Call the real strategy and shift completed-row signals to the next open."""
     required = {"date", "open", "high", "low", "close", "volume"}
     if not required <= set(frame.columns):
@@ -73,11 +76,23 @@ def strategy_decisions(
     analyzed = strategy.populate_indicators(frame.copy(), metadata)
     analyzed = strategy.populate_entry_trend(analyzed, metadata)
     analyzed = strategy.populate_exit_trend(analyzed, metadata)
-    candles = [
-        Candle(row.date.to_pydatetime(), Decimal(str(row.open)), Decimal(str(row.close)))
-        for row in analyzed.itertuples()
-        if start <= row.date.to_pydatetime().astimezone(UTC) < end
-    ]
+    candles = []
+    for index, row in enumerate(analyzed.itertuples()):
+        timestamp = row.date.to_pydatetime().astimezone(UTC)
+        if start <= timestamp < end:
+            # Candle N can use ATR from completed candle N-1, never its own OHLC.
+            prior_atr = analyzed.iloc[index - 1].get("atr_14") if index else None
+            atr = None if pd.isna(prior_atr) else Decimal(str(prior_atr))
+            candles.append(
+                Candle(
+                    timestamp,
+                    Decimal(str(row.open)),
+                    Decimal(str(row.close)),
+                    Decimal(str(row.high)),
+                    Decimal(str(row.low)),
+                    atr,
+                )
+            )
     decisions: dict[datetime, Action | None] = {}
     # Signal row N is known after N closes.  Associate it with N+1's open.
     for index in range(len(analyzed) - 1):
@@ -89,7 +104,86 @@ def strategy_decisions(
             decisions[next_at] = Action.SELL
         elif row.get("enter_long", 0) == 1:
             decisions[next_at] = Action.BUY
-    return candles, decisions
+    return candles, decisions, _strategy_lifecycle(strategy, config)
+
+
+_REPOSITORY_ATR_STOP_MULTIPLIERS: dict[str, Decimal] = {
+    "RoundupBreakoutStrategy": Decimal("2"),
+    "RoundupBreakoutTrendStrategy": Decimal("2"),
+    "RoundupBreakoutAtrStrategy": Decimal("2"),
+    "RoundupBreakoutAtrVolumeStrategy": Decimal("2"),
+    "RoundupTrendPullbackStrategy": Decimal("2"),
+    "RoundupConfirmedBreakoutStrategy": Decimal("2"),
+    "RoundupVolatilitySqueezeStrategy": Decimal("2"),
+}
+
+
+def _validate_disabled_minimal_roi(value: object) -> None:
+    """Accept only the repository's practically-disabled Freqtrade ROI table."""
+    try:
+        if not isinstance(value, Mapping):
+            raise ValueError
+        normalized = tuple(
+            sorted(
+                (
+                    Decimal(str(offset)),
+                    Decimal(str(profit)),
+                )
+                for offset, profit in value.items()
+            )
+        )
+        if any(not offset.is_finite() or not profit.is_finite() for offset, profit in normalized):
+            raise ValueError
+    except (ArithmeticError, ValueError):
+        raise ValueError("active adapter does not support active minimal_roi exits") from None
+    if normalized != ((Decimal("0"), Decimal("100")),):
+        raise ValueError("active adapter does not support active minimal_roi exits")
+
+
+def _repository_atr_stop_multiplier(strategy: Any) -> Decimal | None:
+    """Return the declared ATR stop scope supported by this repository adapter.
+
+    This deliberately recognises only the seven checked-in strategy classes. It
+    does not infer custom-stop semantics from Python source and therefore cannot
+    claim support for arbitrary Freqtrade ``custom_stoploss`` implementations.
+    """
+    if not getattr(strategy, "use_custom_stoploss", False):
+        return None
+    try:
+        return _REPOSITORY_ATR_STOP_MULTIPLIERS[type(strategy).__name__]
+    except KeyError:
+        raise ValueError(
+            "active adapter supports only the repository ATR custom_stoploss form"
+        ) from None
+
+
+def _strategy_lifecycle(strategy: Any, config: dict[str, Any] | None = None) -> LifecycleSettings:
+    """Resolve supported settings using Freqtrade configuration precedence."""
+    if getattr(strategy, "can_short", False):
+        raise ValueError("active adapter supports spot long-only strategies only")
+    if getattr(strategy, "trailing_stop", False):
+        raise ValueError("active adapter does not support trailing_stop")
+    effective = config or {}
+    _validate_disabled_minimal_roi(effective.get("minimal_roi", strategy.minimal_roi))
+    multiplier = _repository_atr_stop_multiplier(strategy)
+    return LifecycleSettings(
+        Decimal(str(effective.get("stoploss", strategy.stoploss))),
+        multiplier is not None,
+        multiplier,
+        bool(effective.get("use_exit_signal", getattr(strategy, "use_exit_signal", True))),
+    )
+
+
+def _load_effective_config(config_file: Path) -> dict[str, Any]:
+    config = json.loads(config_file.read_text(encoding="utf-8"))
+    if config.get("trading_mode") != "spot" or config.get("max_open_trades") != 1:
+        raise ValueError("active adapter requires config spot trading_mode and max_open_trades = 1")
+    if config.get("stake_currency") != "EUR" or config.get("stake_amount") != "unlimited":
+        raise ValueError("active adapter requires EUR unlimited stake configuration")
+    for feature in ("trailing_stop",):
+        if config.get(feature, False):
+            raise ValueError(f"active adapter does not support config {feature}")
+    return config
 
 
 def run_freqtrade_strategy(
@@ -101,23 +195,28 @@ def run_freqtrade_strategy(
     end: datetime,
     *,
     mode: CapitalMode,
-    tradable_balance_ratio: Decimal = Decimal("0.8"),
+    tradable_balance_ratio: Decimal | None = None,
     pair: str = "BTC/EUR",
+    config_file: Path = Path("user_data/config.json"),
 ) -> dict[str, object]:
     """Run a real strategy's causal signals against recurring wallet cash flows."""
-    candles, scheduled = strategy_decisions(
-        frame, strategy_name, strategy_dir, tradable_balance_ratio, pair, start, end
+    config = _load_effective_config(config_file)
+    configured_ratio = Decimal(str(config["tradable_balance_ratio"]))
+    if tradable_balance_ratio is not None and tradable_balance_ratio != configured_ratio:
+        raise ValueError("tradable_balance_ratio must be resolved from config, not overridden")
+    candles, scheduled, lifecycle = strategy_decisions(
+        frame, strategy_name, strategy_dir, configured_ratio, pair, start, end, config
     )
 
     def decide(wallet: WalletState) -> StrategyDecision:
         action = scheduled.get(wallet.timestamp)
         if action is Action.BUY and not wallet.open_position:
-            return StrategyDecision(Action.BUY, wallet.cash * tradable_balance_ratio)
+            return StrategyDecision(Action.BUY, wallet.cash * configured_ratio)
         if action is Action.SELL and wallet.open_position:
             return StrategyDecision(Action.SELL)
         return StrategyDecision()
 
-    result = run_active_backtest(candles, plan, start, end, decide, mode=mode)
+    result = run_active_backtest(candles, plan, start, end, decide, mode=mode, lifecycle=lifecycle)
     result.update(
         {
             "strategy": strategy_name,
@@ -154,7 +253,7 @@ def main() -> None:
     parser.add_argument("--monthly-budget", required=True)
     parser.add_argument("--contribution-day", required=True, type=int)
     parser.add_argument("--fee", required=True)
-    parser.add_argument("--tradable-balance-ratio", default="0.8")
+    parser.add_argument("--config-file", default="user_data/config.json", type=Path)
     parser.add_argument("--output", required=True, type=Path)
     args = parser.parse_args()
     start, end = parse_timerange(args.timerange)
@@ -172,8 +271,8 @@ def main() -> None:
         start,
         end,
         mode=CapitalMode(args.capital_mode),
-        tradable_balance_ratio=Decimal(args.tradable_balance_ratio),
         pair=args.pair,
+        config_file=args.config_file,
     )
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(result, default=_json, indent=2) + "\n", encoding="utf-8")

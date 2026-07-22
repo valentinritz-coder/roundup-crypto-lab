@@ -2,13 +2,19 @@ import ast
 import importlib
 import sys
 import types
+from decimal import Decimal
 from pathlib import Path
 
 import pandas as pd
 import pytest
 
 from roundup_crypto_lab.active_backtests import CapitalMode
-from roundup_crypto_lab.freqtrade_active import run_freqtrade_strategy, validate_pair_data_file
+from roundup_crypto_lab.freqtrade_active import (
+    _repository_atr_stop_multiplier,
+    _strategy_lifecycle,
+    run_freqtrade_strategy,
+    validate_pair_data_file,
+)
 from roundup_crypto_lab.investment_plan import InvestmentPlan
 
 STRATEGIES_DIR = Path("user_data/strategies").resolve()
@@ -177,3 +183,53 @@ def test_pair_data_file_mapping(pair: str, filename: str, valid: bool) -> None:
     else:
         with pytest.raises(ValueError, match="data file must be"):
             validate_pair_data_file(pair, Path(filename))
+
+
+class _LifecycleStub:
+    can_short = False
+    trailing_stop = False
+    stoploss = -0.12
+    minimal_roi = {"0": 100.0}
+    use_exit_signal = True
+    use_custom_stoploss = False
+
+
+def test_minimal_roi_uses_config_precedence_and_normalizes_disabled_value() -> None:
+    strategy = _LifecycleStub()
+    assert _strategy_lifecycle(strategy).fixed_stoploss == Decimal("-0.12")
+    assert _strategy_lifecycle(strategy, {"minimal_roi": {"0": 100}}).fixed_stoploss == Decimal(
+        "-0.12"
+    )
+    assert _strategy_lifecycle(strategy, {"minimal_roi": {"0": "100"}}).use_exit_signal is True
+
+
+def test_minimal_roi_active_config_is_rejected_even_when_strategy_is_disabled() -> None:
+    strategy = _LifecycleStub()
+    for roi in ({"0": 0.05}, {"60": 0.03, "0": 0.10}):
+        with pytest.raises(ValueError, match="does not support active minimal_roi exits"):
+            _strategy_lifecycle(strategy, {"minimal_roi": roi})
+
+
+def test_config_minimal_roi_takes_priority_over_strategy() -> None:
+    strategy = _LifecycleStub()
+    strategy.minimal_roi = {"0": 0.05}
+    _strategy_lifecycle(strategy, {"minimal_roi": {"0": "100"}})
+    with pytest.raises(ValueError, match="does not support active minimal_roi exits"):
+        _strategy_lifecycle(_LifecycleStub(), {"minimal_roi": {"0": 0.05}})
+
+
+def test_current_strategies_declare_supported_atr_custom_stops() -> None:
+    for name in STRATEGY_NAMES:
+        strategy = load(name)()
+        assert _repository_atr_stop_multiplier(strategy) == Decimal("2")
+
+
+def test_unrecognized_custom_stop_is_rejected_without_source_inspection() -> None:
+    class UnknownCustomStop(_LifecycleStub):
+        use_custom_stoploss = True
+
+        def custom_stoploss(self) -> float:
+            return -0.5
+
+    with pytest.raises(ValueError, match="repository ATR custom_stoploss form"):
+        _strategy_lifecycle(UnknownCustomStop())
