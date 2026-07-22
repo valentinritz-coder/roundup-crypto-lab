@@ -12,3 +12,12 @@ The repository-owned adapter adds recurring investor deposits to an auditable, s
 6. After execution, the candle close marks open crypto. An end-open trade is retained with `exit_reason: null` and `end_of_range_position: open_marked_at_final_close`; it is never force-closed.
 
 This is deliberately a narrow OHLC convention, not a simulation of order books, limit-order timeouts, or multi-asset allocation. It matches the relevant strategies' spot, long-only, one-position, fixed/ATR stop and exit-signal scope while keeping external contributions separate from strategy return.
+
+## Remaining work for issue #18
+
+This PR completes the execution adapter only; it does **not** complete issue #18. The adapter is
+not integrated into the controlled **All strategy comparison** workflow, its output is not published
+as a workflow artifact, and it is not part of the native-Freqtrade comparison schema. Those follow-up
+changes must preserve the explicit distinction between `one_shot_capital` and
+`recurring_monthly_contributions` and must compare contribution-neutral performance rather than a
+naive return against final contributed capital. Issue #18 remains open.

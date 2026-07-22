@@ -99,8 +99,11 @@ def test_contribution_during_open_trade_does_not_mutate_historical_stake() -> No
         ),
     )
 
-    assert result["trades"][0]["entry_gross_stake"] == Decimal("100")  # type: ignore[index]
-    assert result["trades"][0]["entry_gross_stake"] == Decimal("100")  # type: ignore[index]
+    trade = result["trades"][0]
+    assert trade["entry_gross_stake"] == Decimal("100")
+    assert trade["exit_reason"] == "exit_signal"
+    assert trade["exit_price"] == Decimal("100")
+    assert trade["net_proceeds"] == Decimal("100")
     assert result["free_cash"] == Decimal("140")
     assert result["current_deployed_capital"] == Decimal("0")
     assert result["cumulative_gross_deployed"] == Decimal("100")

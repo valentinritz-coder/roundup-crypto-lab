@@ -9,10 +9,9 @@ from __future__ import annotations
 
 import argparse
 import importlib
-import inspect
 import json
-import re
 import sys
+from collections.abc import Mapping
 from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path
@@ -108,28 +107,68 @@ def strategy_decisions(
     return candles, decisions, _strategy_lifecycle(strategy, config)
 
 
+_REPOSITORY_ATR_STOP_MULTIPLIERS: dict[str, Decimal] = {
+    "RoundupBreakoutStrategy": Decimal("2"),
+    "RoundupBreakoutTrendStrategy": Decimal("2"),
+    "RoundupBreakoutAtrStrategy": Decimal("2"),
+    "RoundupBreakoutAtrVolumeStrategy": Decimal("2"),
+    "RoundupTrendPullbackStrategy": Decimal("2"),
+    "RoundupConfirmedBreakoutStrategy": Decimal("2"),
+    "RoundupVolatilitySqueezeStrategy": Decimal("2"),
+}
+
+
+def _validate_disabled_minimal_roi(value: object) -> None:
+    """Accept only the repository's practically-disabled Freqtrade ROI table."""
+    try:
+        if not isinstance(value, Mapping):
+            raise ValueError
+        normalized = tuple(
+            sorted(
+                (
+                    Decimal(str(offset)),
+                    Decimal(str(profit)),
+                )
+                for offset, profit in value.items()
+            )
+        )
+        if any(not offset.is_finite() or not profit.is_finite() for offset, profit in normalized):
+            raise ValueError
+    except (ArithmeticError, ValueError):
+        raise ValueError("active adapter does not support active minimal_roi exits") from None
+    if normalized != ((Decimal("0"), Decimal("100")),):
+        raise ValueError("active adapter does not support active minimal_roi exits")
+
+
+def _repository_atr_stop_multiplier(strategy: Any) -> Decimal | None:
+    """Return the declared ATR stop scope supported by this repository adapter.
+
+    This deliberately recognises only the seven checked-in strategy classes. It
+    does not infer custom-stop semantics from Python source and therefore cannot
+    claim support for arbitrary Freqtrade ``custom_stoploss`` implementations.
+    """
+    if not getattr(strategy, "use_custom_stoploss", False):
+        return None
+    try:
+        return _REPOSITORY_ATR_STOP_MULTIPLIERS[type(strategy).__name__]
+    except KeyError:
+        raise ValueError(
+            "active adapter supports only the repository ATR custom_stoploss form"
+        ) from None
+
+
 def _strategy_lifecycle(strategy: Any, config: dict[str, Any] | None = None) -> LifecycleSettings:
-    """Resolve supported stop and exit settings from the selected strategy."""
+    """Resolve supported settings using Freqtrade configuration precedence."""
     if getattr(strategy, "can_short", False):
         raise ValueError("active adapter supports spot long-only strategies only")
     if getattr(strategy, "trailing_stop", False):
         raise ValueError("active adapter does not support trailing_stop")
-    if getattr(strategy, "minimal_roi", {"0": 100.0}) != {"0": 100.0}:
-        raise ValueError("active adapter does not support active minimal_roi exits")
-    custom = bool(getattr(strategy, "use_custom_stoploss", False))
-    multiplier: Decimal | None = None
-    if custom:
-        source = inspect.getsource(strategy.custom_stoploss)
-        match = re.search(r"(?:2(?:\.0)?)\s*\*\s*(?:float\()?atr", source)
-        if not match:
-            raise ValueError(
-                "active adapter supports only current-rate minus constant-times-ATR custom stops"
-            )
-        multiplier = Decimal("2")
     effective = config or {}
+    _validate_disabled_minimal_roi(effective.get("minimal_roi", strategy.minimal_roi))
+    multiplier = _repository_atr_stop_multiplier(strategy)
     return LifecycleSettings(
         Decimal(str(effective.get("stoploss", strategy.stoploss))),
-        custom,
+        multiplier is not None,
         multiplier,
         bool(effective.get("use_exit_signal", getattr(strategy, "use_exit_signal", True))),
     )
