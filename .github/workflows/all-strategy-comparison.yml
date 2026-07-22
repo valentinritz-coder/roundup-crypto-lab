@@ -75,7 +75,7 @@ jobs:
             set -- $spec
             python -m roundup_crypto_lab.one_shot_differential --native-zip "artifacts/results/$2.zip" --active "artifacts/results/active-$1.json" --strategy "$1" --output "artifacts/results/differential-$1.json"
           done
-          python -c 'import glob,json; p="artifacts/results/one-shot-differential.json"; results=[json.load(open(x)) for x in sorted(glob.glob("artifacts/results/differential-*.json"))]; assert len(results)==7; json.dump({"schema_version":"one-shot-differential/v1","strategies":[r["strategies"][0] for r in results]},open(p,"w"),indent=2)'
+          python -m roundup_crypto_lab.one_shot_differential combine --result artifacts/results/differential-RoundupBreakoutStrategy.json --result artifacts/results/differential-RoundupBreakoutTrendStrategy.json --result artifacts/results/differential-RoundupBreakoutAtrStrategy.json --result artifacts/results/differential-RoundupBreakoutAtrVolumeStrategy.json --result artifacts/results/differential-RoundupTrendPullbackStrategy.json --result artifacts/results/differential-RoundupConfirmedBreakoutStrategy.json --result artifacts/results/differential-RoundupVolatilitySqueezeStrategy.json --output artifacts/results/one-shot-differential.json
       - name: Generate, validate, and summarize comparison
         env: {TIMERANGE: '${{ inputs.timerange }}', TIMEFRAME: '${{ inputs.timeframe }}', PAIR: '${{ inputs.pair }}', CAPITAL_MODE: '${{ inputs.capital_mode }}'}
         run: |

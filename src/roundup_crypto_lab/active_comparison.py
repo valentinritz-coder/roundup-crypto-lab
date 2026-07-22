@@ -356,13 +356,9 @@ def validate_active_result(p: dict[str, object], **expected: object) -> None:
         or dec(m["current_deployed_capital"], "deployed") != deployed
     ):
         raise ValueError("position state mismatch")
-    if (
-        open_trades
-        and dec(m["crypto_value"], "crypto")
-        != dec(open_trades[0]["quantity"], "quantity")
-        * dec(last.get("close_price", last.get("crypto_value")), "final price")
-        and last.get("close_price") is not None
-    ):
+    if open_trades and dec(m["crypto_value"], "crypto") != dec(
+        open_trades[0]["quantity"], "quantity"
+    ) * dec(last["mark_price"], "mark price"):
         raise ValueError("crypto value mismatch")
 
 
@@ -396,13 +392,25 @@ def main() -> None:
     ):
         raise ValueError("native metadata differs from active experiment")
     differential = None
+    if exp["capital_mode"] == "one_shot_capital" and not a.one_shot_differential:
+        raise ValueError("one-shot comparison requires differential artifact")
+    if exp["capital_mode"] != "one_shot_capital" and a.one_shot_differential:
+        raise ValueError("recurring comparison must not include differential artifact")
     if a.one_shot_differential:
         differential = json.loads(a.one_shot_differential.read_text())
-        if (
-            exp["capital_mode"] != "one_shot_capital"
-            or differential.get("schema_version") != "one-shot-differential/v1"
+        expected = ("experiment_id", "selected_pair", "timeframe", "timerange", "capital_mode")
+        if differential.get("schema_version") != "one-shot-differential/v1" or any(
+            differential.get(k) != exp.get(k) for k in expected
         ):
             raise ValueError("invalid one-shot differential artifact")
+        rows = differential.get("strategies")
+        if (
+            not isinstance(rows, list)
+            or [row.get("strategy") for row in rows if isinstance(row, dict)]
+            != list(STRATEGY_ORDER)
+            or any(not isinstance(row, dict) or row.get("status") != "passed" for row in rows)
+        ):
+            raise ValueError("invalid one-shot differential strategies")
     out = {
         "schema_version": "controlled-comparison/v1",
         "experiment": exp,
@@ -436,8 +444,21 @@ def main() -> None:
         "",
         "Recurring results are ranked only by contribution-neutral metrics under this identical experiment."  # noqa: E501
         if exp["capital_mode"] == "recurring_monthly_contributions"
-        else "One-shot differential validation must pass; recurring equivalence is not claimed.",
+        else "One-shot differential validation executed successfully; lifecycle and final balances passed.",  # noqa: E501
     ]
+    if differential:
+        lines += [
+            "",
+            "# One-shot differential validation",
+            "",
+            f"Experiment ID: `{differential['experiment_id']}`",
+            "",
+            "| Strategy | Status | Trades checked | Lifecycle | Final balances |",
+            "| --- | --- | ---: | --- | --- |",
+        ] + [
+            f"| {row['strategy']} | {row['status']} | {row['trade_count']} | passed | passed |"
+            for row in differential["strategies"]
+        ]
     a.summary.write_text("\n".join(lines) + "\n")
 
 

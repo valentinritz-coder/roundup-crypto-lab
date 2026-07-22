@@ -10,7 +10,7 @@ from __future__ import annotations
 import hashlib
 import json
 from collections.abc import Mapping, Sequence
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any
 
@@ -131,3 +131,34 @@ def assert_final_balances_equivalent(
             raise AssertionError(
                 f"final {field} differs: native={native[field]!r}, adapter={adapter[field]!r}"
             )
+
+
+def normalize_adapter_result_for_native_comparison(adapter: Mapping[str, Any]) -> dict[str, Any]:
+    """Normalize adapter fields to Freqtrade's documented eight-decimal export form."""
+    trades = adapter.get("trades")
+    if not isinstance(trades, list):
+        raise ValueError("adapter result has no trade ledger")
+    normalized = []
+    for trade in trades:
+        if not isinstance(trade, Mapping):
+            raise ValueError("adapter trade is invalid")
+        item = dict(trade)
+        try:
+            item["entry_gross_stake"] = Decimal(str(item["entry_gross_stake"])).quantize(
+                Decimal("0.00000001")
+            )
+        except (InvalidOperation, KeyError) as error:
+            raise ValueError("adapter trade has invalid stake") from error
+        for field in ("entry_timestamp", "exit_timestamp"):
+            if item.get(field) is not None:
+                item[field] = str(item[field]).replace(" ", "T")
+        reason = item.get("exit_reason")
+        if reason == "close_below_sma20":
+            item["exit_reason"] = "exit_signal"
+        elif reason == "trailing_stop_loss":
+            item["exit_reason"] = "stop_loss"
+        normalized.append(item)
+    return {
+        "trades": normalized,
+        **{key: adapter[key] for key in ("free_cash", "crypto_value", "final_equity")},
+    }
