@@ -9,17 +9,23 @@ jobs:
       - uses: actions/setup-python@v5
         with: {python-version: '3.12'}
       - run: python -m pip install -e '.[dev]'
-      - name: Capture Ruff diagnostics
-        shell: bash
+      - name: Apply Ruff in disposable workspace
         run: |
-          set +e
-          python -m ruff check . --output-format=concise > ruff-check.txt 2>&1
+          python -m ruff check --fix .
+          python -m ruff format .
+          mkdir -p formatted/src/roundup_crypto_lab formatted/tests
+          cp src/roundup_crypto_lab/active_builder.py formatted/src/roundup_crypto_lab/
+          cp src/roundup_crypto_lab/active_curve.py formatted/src/roundup_crypto_lab/
+          cp src/roundup_crypto_lab/active_reporting.py formatted/src/roundup_crypto_lab/
+          cp src/roundup_crypto_lab/one_shot_differential.py formatted/src/roundup_crypto_lab/
+          cp tests/test_active_workflow_contract.py formatted/tests/
+          python -m ruff check . > ruff-check.txt 2>&1
           python -m ruff format --check . > ruff-format.txt 2>&1
-          exit 0
       - uses: actions/upload-artifact@v4
         with:
-          name: lint-diagnostics-${{ github.run_id }}
+          name: formatted-lint-${{ github.run_id }}
           path: |
+            formatted/
             ruff-check.txt
             ruff-format.txt
           if-no-files-found: error
