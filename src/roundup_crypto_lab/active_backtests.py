@@ -236,6 +236,7 @@ def run_active_backtest(
                 "entry_timestamp": timestamp.isoformat(),
                 "entry_price": candle.open,
                 "entry_gross_stake": gross,
+                "cash_available": cash + gross + fee,
                 "entry_fee": fee,
                 "quantity": quantity,
                 "initial_stop_price": stop_price,

@@ -51,11 +51,8 @@ The differential proof is only for `one_shot_capital`. Native Freqtrade has no e
 adapter's investor contribution ledger; recurring mode remains separately tested with the real
 strategy and is not claimed as native-equivalent.
 
-## Remaining work for issue #18
+## Controlled recurring comparison
 
-This PR completes the execution adapter only; it does **not** complete issue #18. The adapter is
-not integrated into the controlled **All strategy comparison** workflow, its output is not published
-as a workflow artifact, and it is not part of the native-Freqtrade comparison schema. Those follow-up
-changes must preserve the explicit distinction between `one_shot_capital` and
-`recurring_monthly_contributions` and must compare contribution-neutral performance rather than a
-naive return against final contributed capital. Issue #18 remains open.
+The All strategy comparison workflow produces a versioned `active-strategy-result/v1` JSON file for each strategy and a combined controlled-comparison artifact. Its **Native Freqtrade one-shot reference** and **Active investor cash-flow simulation** sections are separate result families: native Freqtrade `profit_total` is never used to rank recurring simulations.
+
+`investment_return` is final equity minus all contributed capital. It is useful for reconciling the wallet, but dividing it by final contributions is misleading because contributions arrive at different dates and have different market exposure. Instead, use the contribution-neutral return and maximum drawdown, which track the value of time-weighted investor shares after each contribution. These are comparable only among runs with identical pair, timerange, fee, and investment-plan settings.
