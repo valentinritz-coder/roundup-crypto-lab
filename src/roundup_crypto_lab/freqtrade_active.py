@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import importlib
+import inspect
 import json
 import sys
 from collections.abc import Mapping
@@ -38,7 +39,8 @@ def _load_strategy(name: str, strategy_dir: Path) -> Any:
     if strategy_path not in sys.path:
         sys.path.insert(0, strategy_path)
     module = importlib.import_module(name)
-    return getattr(module, name)()
+    strategy_class = getattr(module, name)
+    return strategy_class({}) if inspect.signature(strategy_class).parameters else strategy_class()
 
 
 def validate_pair_data_file(pair: str, data_file: Path) -> None:
@@ -164,7 +166,14 @@ def _strategy_lifecycle(strategy: Any, config: dict[str, Any] | None = None) -> 
         raise ValueError("active adapter does not support trailing_stop")
     effective = config or {}
     _validate_disabled_minimal_roi(effective.get("minimal_roi", strategy.minimal_roi))
-    multiplier = _repository_atr_stop_multiplier(strategy)
+    # Freqtrade configuration overrides the strategy toggle.  This permits the
+    # deterministic native differential fixture to exercise the shared fixed
+    # stop path without changing the repository strategy source.
+    multiplier = (
+        _repository_atr_stop_multiplier(strategy)
+        if effective.get("use_custom_stoploss", getattr(strategy, "use_custom_stoploss", False))
+        else None
+    )
     return LifecycleSettings(
         Decimal(str(effective.get("stoploss", strategy.stoploss))),
         multiplier is not None,

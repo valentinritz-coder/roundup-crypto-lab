@@ -214,12 +214,17 @@ def run_active_backtest(
         elif decision.action is Action.BUY:
             if quantity:
                 raise ValueError("maximum one open position")
-            if decision.stake is None or decision.stake <= 0 or decision.stake > cash:
-                raise ValueError("buy stake must be positive and no greater than available cash")
+            if decision.stake is None or decision.stake <= 0:
+                raise ValueError("buy stake must be positive")
             gross = decision.stake
             fee = gross * plan.fee_ratio
-            quantity = (gross - fee) / candle.open
-            cash -= gross
+            if gross + fee > cash:
+                raise ValueError("buy stake plus fee must not exceed available cash")
+            # Freqtrade's exported stake excludes the entry fee; its filled
+            # amount is therefore stake / entry price while the wallet pays
+            # stake plus fee.
+            quantity = gross / candle.open
+            cash -= gross + fee
             fees += fee
             current_deployed = gross
             cumulative_deployed += gross
@@ -241,6 +246,12 @@ def run_active_backtest(
                 "exit_tag": None,
             }
             trades.append(open_trade)
+            # Native backtesting can fill a newly opened position's stop from
+            # the entry candle's remaining intrabar range.
+            if low <= stop_price:
+                close_trade(
+                    candle, candle.open if candle.open <= stop_price else stop_price, "stop_loss"
+                )
         elif decision.action is not Action.HOLD:
             raise ValueError("unknown strategy action")
         crypto_value = quantity * candle.close

@@ -26,7 +26,9 @@ def config_digest(config: Mapping[str, Any]) -> str:
     return hashlib.sha256(_canonical_json(config)).hexdigest()
 
 
-def generate_single_pair_config(source: Path, destination: Path, pair: str) -> dict[str, Any]:
+def generate_single_pair_config(
+    source: Path, destination: Path, pair: str, *, overrides: Mapping[str, Any] | None = None
+) -> dict[str, Any]:
     """Copy a committed config into a temporary, auditable one-pair config."""
     if pair not in SUPPORTED_PAIRS:
         raise ValueError("only BTC/EUR and ETH/EUR are supported")
@@ -38,6 +40,7 @@ def generate_single_pair_config(source: Path, destination: Path, pair: str) -> d
     generated_exchange = dict(exchange)
     generated_exchange["pair_whitelist"] = [pair]
     generated["exchange"] = generated_exchange
+    generated.update(overrides or {})
     destination.parent.mkdir(parents=True, exist_ok=True)
     destination.write_text(json.dumps(generated, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     return {
@@ -81,6 +84,7 @@ def assert_lifecycle_equivalent(
     adapter: Sequence[Mapping[str, Any]],
     *,
     quantity_tolerance: Decimal = Decimal("0.00000001"),
+    monetary_tolerance: Decimal = Decimal("0.00000001"),
 ) -> None:
     """Reject every lifecycle mismatch, allowing only explicit quantity rounding."""
     if len(native) != len(adapter):
@@ -93,6 +97,21 @@ def assert_lifecycle_equivalent(
                     > quantity_tolerance
                 ):
                     raise AssertionError(f"trade {index} quantity differs")
+            elif field in {
+                "entry_price",
+                "exit_price",
+                "entry_gross_stake",
+                "entry_fee",
+                "exit_fee",
+            }:
+                if (
+                    abs(Decimal(str(expected[field])) - Decimal(str(actual[field])))
+                    > monetary_tolerance
+                ):
+                    raise AssertionError(
+                        f"trade {index} {field} differs: native={expected[field]!r}, "
+                        f"adapter={actual[field]!r}"
+                    )
             elif str(expected[field]) != str(actual[field]):
                 raise AssertionError(
                     f"trade {index} {field} differs: native={expected[field]!r}, "

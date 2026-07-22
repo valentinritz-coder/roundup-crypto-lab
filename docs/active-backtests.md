@@ -28,6 +28,26 @@ behavior—including order-book, limit-order, and unsupported lifecycle behavior
 claim. Passing this differential test therefore does **not** establish general Freqtrade
 equivalence.
 
+The executable reference is `python -m pytest -vv tests/test_freqtrade_differential.py`. It writes
+150 deterministic BTC/EUR 4-hour candles to a temporary Freqtrade Feather directory, runs
+`python -m freqtrade backtesting --config <temporary-config> --datadir <temporary-datadir>
+--strategy RoundupBreakoutStrategy --timeframe 4h --timerange 20260121-20260126 --fee 0.005
+--export trades`, then runs the adapter with `one_shot_capital`. The fixture has 120 warm-up
+candles, a breakout followed by an `exit_signal`, and a second breakout whose entry candle reaches
+the fixed -12% stop. The test disables the strategy's ATR custom-stop through the generated
+configuration only; the strategy source is unchanged.
+
+Native `open_date`, `close_date`, `open_rate`, `close_rate`, `stake_amount`, `amount`,
+`fee_open`, `fee_close`, and `exit_reason` normalize respectively to adapter entry/exit timestamps,
+prices, gross stake, quantity, fees, and reason. Native stake excludes entry fee, as does the
+adapter stake; both wallets debit stake plus the entry fee. `trailing_stop_loss` is normalized to
+`stop_loss`. The only tolerance is `1e-8` for native exported amount precision and its directly
+derived monetary values; all timestamps, reasons, and all other differences fail.
+
+The differential proof is only for `one_shot_capital`. Native Freqtrade has no equivalent for the
+adapter's investor contribution ledger; recurring mode remains separately tested with the real
+strategy and is not claimed as native-equivalent.
+
 ## Remaining work for issue #18
 
 This PR completes the execution adapter only; it does **not** complete issue #18. The adapter is
