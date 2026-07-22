@@ -13,6 +13,44 @@ The repository-owned adapter adds recurring investor deposits to an auditable, s
 
 This is deliberately a narrow OHLC convention, not a simulation of order books, limit-order timeouts, or multi-asset allocation. It matches the relevant strategies' spot, long-only, one-position, fixed/ATR stop and exit-signal scope while keeping external contributions separate from strategy return.
 
+## Native differential scope
+
+The differential harness generates (rather than edits) a temporary native configuration from
+`user_data/config.json`. It replaces the whitelist with exactly one selected pair (`BTC/EUR` or
+`ETH/EUR`) and records a canonical SHA-256 configuration digest. Before an adapter invocation, the
+data filename, strategy timeframe metadata, and generated native whitelist must agree. This is an
+offline fixture contract: it does not download market data.
+
+The comparison is deliberately limited to the lifecycle fields implemented by the adapter: entry
+and exit times/prices, gross stake, quantity (with an explicit `1e-8` decimal rounding tolerance),
+entry/exit fees, exit reason, and final free cash, crypto mark, and equity. Any other Freqtrade
+behavior—including order-book, limit-order, and unsupported lifecycle behavior—is outside this
+claim. Passing this differential test therefore does **not** establish general Freqtrade
+equivalence.
+
+The executable reference is `python -m pytest -vv tests/test_freqtrade_differential.py`. It writes
+150 deterministic BTC/EUR 4-hour candles to a temporary Freqtrade Feather directory, runs
+`python -m freqtrade backtesting --config <temporary-config> --datadir <temporary-datadir>
+--strategy RoundupBreakoutStrategy --timeframe 4h --timerange 20260121-20260126 --fee 0.005
+--export trades`, then runs the adapter with `one_shot_capital`. The fixture has 120 warm-up
+candles, a breakout followed by an `exit_signal`, and a second breakout whose entry candle reaches
+the fixed -12% stop. The test disables the strategy's ATR custom-stop through the generated
+configuration only; the strategy source is unchanged.
+
+Native `open_date`, `close_date`, `open_rate`, `close_rate`, `stake_amount`, `amount`,
+`fee_open`, `fee_close`, and `exit_reason` normalize respectively to adapter entry/exit timestamps,
+prices, gross stake, quantity, fees, and reason. Native stake excludes entry fee, as does the
+adapter stake; both wallets debit stake plus the entry fee. `trailing_stop_loss` is normalized to
+`stop_loss`. Timestamps, prices, gross stake, and exit reasons compare exactly. The only tolerance
+is `1e-8` for native exported quantity and its directly derived entry/exit fees. The native reasons
+accepted by this scope are only `exit_signal`, the repository strategy's `close_below_sma20` exit
+tag, `stop_loss`, and `trailing_stop_loss`; `close_below_sma20` normalizes to `exit_signal` and the
+latter normalizes to `stop_loss`, while every other native reason fails validation.
+
+The differential proof is only for `one_shot_capital`. Native Freqtrade has no equivalent for the
+adapter's investor contribution ledger; recurring mode remains separately tested with the real
+strategy and is not claimed as native-equivalent.
+
 ## Remaining work for issue #18
 
 This PR completes the execution adapter only; it does **not** complete issue #18. The adapter is
