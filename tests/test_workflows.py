@@ -66,3 +66,34 @@ def test_freqtrade_validation_analysis_contract() -> None:
         assert f"Run {name}" in validation and f"artifacts/logs/{log}" in validation
     assert "Validate lookahead report" in validation and "Validate recursive report" in validation
     assert "if: always()" in validation and "actions/upload-artifact@v4" in validation
+
+
+def test_breakout_comparison_workflow_contract() -> None:
+    workflow = content("breakout-strategy-comparison.yml")
+    parsed = yaml.safe_load(workflow)
+    assert parsed
+    assert "workflow_dispatch:" in workflow
+    assert "pull_request" not in workflow and "push:" not in workflow
+    assert "timerange:" in workflow and "validate-timerange" in workflow
+    assert "validate-data" in workflow and "Update Kraken data first" in workflow
+    assert "actions/cache/restore@v4" in workflow
+    assert "download-data" not in workflow and "--erase" not in workflow
+    assert "hyperopt" not in workflow
+    for strategy in (
+        "RoundupBreakoutStrategy",
+        "RoundupBreakoutTrendStrategy",
+        "RoundupBreakoutAtrStrategy",
+        "RoundupBreakoutAtrVolumeStrategy",
+    ):
+        assert workflow.count(f"--strategy {strategy}") == 1
+        assert f"--result {strategy}=" in workflow
+    # The fifth use is list-data; every one of the four backtests shares this config.
+    assert workflow.count("--config user_data/config.json") >= 4
+    assert workflow.count('--timeframe "$TIMEFRAME"') >= 4
+    assert workflow.count('--timerange "$TIMERANGE"') >= 4
+    for filename in ("baseline.zip", "trend.zip", "atr.zip", "atr-volume.zip"):
+        assert f"artifacts/results/{filename}" in workflow
+    assert "python -m roundup_crypto_lab.compare_strategies" in workflow
+    assert "breakout-comparison.json" in workflow
+    assert "GITHUB_STEP_SUMMARY" in workflow
+    assert "actions/upload-artifact@v4" in workflow and "if: always()" in workflow

@@ -3,6 +3,12 @@ from pathlib import Path
 
 import pytest
 
+from roundup_crypto_lab.breakout_comparison import (
+    parse_timerange,
+    summary_markdown,
+    validate_comparison,
+    validate_metadata,
+)
 from roundup_crypto_lab.compare_strategies import REQUIRED_STRATEGIES, create_comparison
 
 
@@ -55,3 +61,53 @@ def test_comparison_rejects_missing_and_non_numeric_results(tmp_path: Path) -> N
     inputs["RoundupBreakoutStrategy"].write_text(json.dumps(document))
     with pytest.raises(ValueError, match="non-numeric expectancy"):
         create_comparison(inputs)
+
+
+def test_timerange_validation_is_strict() -> None:
+    assert parse_timerange("20260123-20260722")
+    for timerange in (
+        "20260123",
+        "2026-01-23-20260722",
+        "20260230-20260722",
+        "20260722-20260123",
+        "20260123-20260123",
+        "$(whoami)-20260722",
+    ):
+        with pytest.raises(ValueError):
+            parse_timerange(timerange)
+
+
+def test_comparison_validation_and_summary_keep_raw_values(tmp_path: Path) -> None:
+    output = tmp_path / "comparison.json"
+    rows = create_comparison(valid_inputs(tmp_path))
+    output.write_text(json.dumps(rows))
+    validated = validate_comparison(output)
+    summary = summary_markdown(
+        validated,
+        {
+            "timerange": "20260123-20260722",
+            "timeframe": "4h",
+            "freqtrade_version": "2026.6",
+            "commit_sha": "abc",
+            "run_date_utc": "2026-07-22T00:00:00Z",
+        },
+    )
+    assert "10.00%" in summary
+    assert "Raw `profit_total`, `winrate`, and `max_drawdown_account`" in summary
+    assert json.loads(output.read_text())[0]["profit_total"] == 0.1
+    validate_metadata(
+        {
+            "timerange": "20260123-20260722",
+            "timeframe": "4h",
+            "commit_sha": "abc",
+            "python_version": "Python 3.12",
+            "freqtrade_version": "2026.6",
+            "run_date_utc": "2026-07-22T00:00:00Z",
+            "strategies": [
+                "RoundupBreakoutStrategy",
+                "RoundupBreakoutTrendStrategy",
+                "RoundupBreakoutAtrStrategy",
+                "RoundupBreakoutAtrVolumeStrategy",
+            ],
+        }
+    )

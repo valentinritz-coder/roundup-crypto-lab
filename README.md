@@ -146,3 +146,13 @@ data. Re-run Seed after cache eviction. Technical validation does not establish 
 The official reduced Kraken archive uses the seven columns `timestamp, open, high, low, close,
 volume, trades` (with `trades` also called `count` in some headers). It does **not** include VWAP;
 the importer retains the OHLC and volume fields and validates the trade count separately.
+
+### Comparer les variantes breakout dans Actions
+
+Après le merge des stratégies, lancez **Update Kraken data** si nécessaire, puis ouvrez
+**Actions → Breakout strategy comparison → Run workflow**. Entrez par exemple
+`20260123-20260722` et conservez `4h`. Le workflow consomme le cache Kraken préparé sans le
+télécharger ni le réparer; une couverture insuffisante indique explicitement de lancer **Update
+Kraken data** d'abord. Son artifact contient les quatre ZIP de backtest, le
+`breakout-comparison.json`, les logs et les métadonnées; le Job Summary rend les métriques lisibles.
+Ces résultats ne décrivent qu'un timerange et ne démontrent pas une rentabilité hors échantillon.
