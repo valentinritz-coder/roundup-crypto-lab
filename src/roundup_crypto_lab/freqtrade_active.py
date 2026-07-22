@@ -28,6 +28,7 @@ from roundup_crypto_lab.active_backtests import (
     WalletState,
     run_active_backtest,
 )
+from roundup_crypto_lab.freqtrade_differential import config_digest, validate_execution_scope
 from roundup_crypto_lab.investment_plan import InvestmentPlan
 from roundup_crypto_lab.passive_benchmarks import parse_timerange
 
@@ -42,10 +43,8 @@ def _load_strategy(name: str, strategy_dir: Path) -> Any:
 
 def validate_pair_data_file(pair: str, data_file: Path) -> None:
     """Reject a prepared candle file that does not belong to the selected pair."""
-    if pair not in {"BTC/EUR", "ETH/EUR"}:
-        raise ValueError("only BTC/EUR and ETH/EUR are supported")
     expected_name = f"{pair.replace('/', '_')}-4h.feather"
-    if data_file.name != expected_name:
+    if pair not in {"BTC/EUR", "ETH/EUR"} or data_file.name != expected_name:
         raise ValueError(f"data file must be {expected_name} for {pair}")
 
 
@@ -207,6 +206,9 @@ def run_freqtrade_strategy(
     candles, scheduled, lifecycle = strategy_decisions(
         frame, strategy_name, strategy_dir, configured_ratio, pair, start, end, config
     )
+    strategy = _load_strategy(strategy_name, strategy_dir)
+    if getattr(strategy, "timeframe", None) != config.get("timeframe"):
+        raise ValueError("strategy timeframe and config timeframe differ")
 
     def decide(wallet: WalletState) -> StrategyDecision:
         action = scheduled.get(wallet.timestamp)
@@ -228,6 +230,11 @@ def run_freqtrade_strategy(
                 "contribution_day": plan.contribution_day,
             },
             "signal_execution": "completed candle N signals execute at candle N+1 open",
+            "execution_scope": {
+                "selected_pair": pair,
+                "config_digest": config_digest(config),
+                "timeframe": config["timeframe"],
+            },
         }
     )
     return result
@@ -258,6 +265,14 @@ def main() -> None:
     args = parser.parse_args()
     start, end = parse_timerange(args.timerange)
     validate_pair_data_file(args.pair, args.data_file)
+    config = _load_effective_config(args.config_file)
+    strategy = _load_strategy(args.strategy, args.strategy_dir)
+    validate_execution_scope(
+        pair=args.pair,
+        data_file=args.data_file,
+        strategy_timeframe=strategy.timeframe,
+        config=config,
+    )
     frame = pd.read_feather(args.data_file)
     frame["date"] = pd.to_datetime(frame["date"], utc=True)
     plan = InvestmentPlan(

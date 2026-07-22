@@ -129,8 +129,19 @@ def test_strategy_sources_do_not_reference_future_candles() -> None:
 
 
 def test_real_baseline_strategy_runs_through_recurring_cash_flow_bridge() -> None:
-    rows = 130
-    frame = candles()
+    # This spans two monthly contribution dates after the initial contribution,
+    # while still executing the repository's real strategy implementation.
+    rows = 500
+    values = range(rows)
+    frame = pd.DataFrame(
+        {
+            "open": [100 + value for value in values],
+            "high": [101 + value for value in values],
+            "low": [99 + value for value in values],
+            "close": [100.5 + value for value in values],
+            "volume": [10 + value for value in values],
+        }
+    )
     frame.insert(0, "date", pd.date_range("2026-01-01", periods=rows, freq="4h", tz="UTC"))
     # The final completed candle creates an entry signal.  It can only execute
     # at a later open, so this fixture proves no same-open use of its close.
@@ -147,6 +158,7 @@ def test_real_baseline_strategy_runs_through_recurring_cash_flow_bridge() -> Non
     assert result["strategy"] == "RoundupBreakoutStrategy"
     assert result["signal_execution"] == "completed candle N signals execute at candle N+1 open"
     assert "contribution_ledger" in result and "equity_curve" in result
+    assert len(result["contribution_ledger"]) >= 3
     start = frame.iloc[120]["date"]
     assert all(pd.Timestamp(row["timestamp"]) >= start for row in result["trades"])
     assert all(pd.Timestamp(row["timestamp"]) >= start for row in result["equity_curve"])

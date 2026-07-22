@@ -13,6 +13,21 @@ The repository-owned adapter adds recurring investor deposits to an auditable, s
 
 This is deliberately a narrow OHLC convention, not a simulation of order books, limit-order timeouts, or multi-asset allocation. It matches the relevant strategies' spot, long-only, one-position, fixed/ATR stop and exit-signal scope while keeping external contributions separate from strategy return.
 
+## Native differential scope
+
+The differential harness generates (rather than edits) a temporary native configuration from
+`user_data/config.json`. It replaces the whitelist with exactly one selected pair (`BTC/EUR` or
+`ETH/EUR`) and records a canonical SHA-256 configuration digest. Before an adapter invocation, the
+data filename, strategy timeframe metadata, and generated native whitelist must agree. This is an
+offline fixture contract: it does not download market data.
+
+The comparison is deliberately limited to the lifecycle fields implemented by the adapter: entry
+and exit times/prices, gross stake, quantity (with an explicit `1e-8` decimal rounding tolerance),
+entry/exit fees, exit reason, and final free cash, crypto mark, and equity. Any other Freqtrade
+behavior—including order-book, limit-order, and unsupported lifecycle behavior—is outside this
+claim. Passing this differential test therefore does **not** establish general Freqtrade
+equivalence.
+
 ## Remaining work for issue #18
 
 This PR completes the execution adapter only; it does **not** complete issue #18. The adapter is
