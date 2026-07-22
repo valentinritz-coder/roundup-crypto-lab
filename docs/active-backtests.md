@@ -19,9 +19,10 @@ independently, and never generate a strategy signal.
 Before evaluating `[start, end)`, the bridge retains the selected strategy's declared
 `startup_candle_count` candles and runs all three strategy population methods over warm-up plus
 evaluation data. It fails if that history is unavailable. Only post-start execution candles and
-cash flows are emitted. The workflow is deliberately single-pair: select `BTC/EUR` or `ETH/EUR`;
+cash flows are emitted. The bridge and CLI are deliberately single-pair: select `BTC/EUR` or `ETH/EUR`;
 the pair is passed as strategy metadata and deterministically maps to its matching prepared Feather
-file. It is not a two-pair portfolio comparison.
+file. This is not a two-pair portfolio simulation; the controlled All strategy comparison workflow
+remains native-Freqtrade only.
 
 ## Modes and timestamps
 

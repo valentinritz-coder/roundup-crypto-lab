@@ -38,6 +38,15 @@ def _load_strategy(name: str, strategy_dir: Path) -> Any:
     return getattr(module, name)()
 
 
+def validate_pair_data_file(pair: str, data_file: Path) -> None:
+    """Reject a prepared candle file that does not belong to the selected pair."""
+    if pair not in {"BTC/EUR", "ETH/EUR"}:
+        raise ValueError("only BTC/EUR and ETH/EUR are supported")
+    expected_name = f"{pair.replace('/', '_')}-4h.feather"
+    if data_file.name != expected_name:
+        raise ValueError(f"data file must be {expected_name} for {pair}")
+
+
 def strategy_decisions(
     frame: pd.DataFrame,
     strategy_name: str,
@@ -149,9 +158,7 @@ def main() -> None:
     parser.add_argument("--output", required=True, type=Path)
     args = parser.parse_args()
     start, end = parse_timerange(args.timerange)
-    expected_name = f"{args.pair.replace('/', '_')}-4h.feather"
-    if args.data_file.name != expected_name:
-        raise ValueError(f"data file must be {expected_name} for {args.pair}")
+    validate_pair_data_file(args.pair, args.data_file)
     frame = pd.read_feather(args.data_file)
     frame["date"] = pd.to_datetime(frame["date"], utc=True)
     plan = InvestmentPlan(
