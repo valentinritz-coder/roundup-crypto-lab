@@ -262,6 +262,7 @@ def run_active_backtest(
         equity_curve.append(
             {
                 "timestamp": timestamp.isoformat(),
+                "mark_price": candle.close,
                 "free_cash": cash,
                 "current_deployed_capital": current_deployed,
                 "cumulative_gross_deployed": cumulative_deployed,

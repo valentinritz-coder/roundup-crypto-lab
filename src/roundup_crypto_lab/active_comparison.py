@@ -235,6 +235,69 @@ def validate_active_result(p: dict[str, object], **expected: object) -> None:
         previous_exit = exit
     if len(open_trades) > 1:
         raise ValueError("more than one open trade")
+    previous_contributed = Decimal()
+    previous_gross = Decimal()
+    for row in curve:
+        if not isinstance(row, dict):
+            raise ValueError("equity row invalid")
+        for key in (
+            "mark_price",
+            "free_cash",
+            "crypto_value",
+            "current_deployed_capital",
+            "cumulative_gross_deployed",
+            "equity",
+            "cumulative_contributions",
+            "investment_return",
+            "time_weighted_share_value",
+        ):
+            value = dec(row.get(key), key)
+            if key == "time_weighted_share_value" and value <= 0:
+                raise ValueError("share value must be positive")
+            if (
+                key
+                in {
+                    "mark_price",
+                    "free_cash",
+                    "crypto_value",
+                    "current_deployed_capital",
+                    "cumulative_gross_deployed",
+                    "cumulative_contributions",
+                }
+                and value < 0
+            ):
+                raise ValueError(f"negative {key}")
+        if (
+            dec(row["mark_price"], "mark") <= 0
+            or dec(row["equity"], "equity")
+            != dec(row["free_cash"], "cash") + dec(row["crypto_value"], "crypto")
+            or dec(row["investment_return"], "return")
+            != dec(row["equity"], "equity") - dec(row["cumulative_contributions"], "contributed")
+        ):
+            raise ValueError("invalid equity row")
+        if (
+            dec(row["cumulative_contributions"], "contributed") < previous_contributed
+            or dec(row["cumulative_gross_deployed"], "gross") < previous_gross
+        ):
+            raise ValueError("decreasing cumulative curve")
+        previous_contributed, previous_gross = (
+            dec(row["cumulative_contributions"], "contributed"),
+            dec(row["cumulative_gross_deployed"], "gross"),
+        )
+    shares = [
+        dec(row["time_weighted_share_value"], "share") for row in curve if isinstance(row, dict)
+    ]
+    peak = shares[0]
+    drawdown = Decimal()
+    for share in shares:
+        peak = max(peak, share)
+        drawdown = max(drawdown, (peak - share) / peak)
+    if (
+        dec(m["contribution_neutral_return"], "neutral return") != shares[-1] - 1
+        or dec(m["contribution_neutral_max_drawdown"], "neutral drawdown") != drawdown
+        or not Decimal() <= drawdown <= Decimal(1)
+    ):
+        raise ValueError("contribution-neutral metrics mismatch")
     last = curve[-1]
     if not isinstance(last, dict):
         raise ValueError("equity invalid")
@@ -310,6 +373,7 @@ def main() -> None:
     ap.add_argument("--metadata", type=Path, required=True)
     ap.add_argument("--output", type=Path, required=True)
     ap.add_argument("--summary", type=Path, required=True)
+    ap.add_argument("--one-shot-differential", type=Path)
     a = ap.parse_args()
     results = [json.loads(x.read_text()) for x in a.active_result]
     if len(results) != 7:
@@ -331,11 +395,20 @@ def main() -> None:
         or meta.get("pairs") != exp["selected_pair"]
     ):
         raise ValueError("native metadata differs from active experiment")
+    differential = None
+    if a.one_shot_differential:
+        differential = json.loads(a.one_shot_differential.read_text())
+        if (
+            exp["capital_mode"] != "one_shot_capital"
+            or differential.get("schema_version") != "one-shot-differential/v1"
+        ):
+            raise ValueError("invalid one-shot differential artifact")
     out = {
         "schema_version": "controlled-comparison/v1",
         "experiment": exp,
         "native_freqtrade_one_shot_reference": native,
         "active_investor_cash_flow_simulation": results,
+        **({"one_shot_differential": differential} if differential else {}),
     }
     a.output.write_text(json.dumps(out, default=str, indent=2) + "\n")
     lines = (
