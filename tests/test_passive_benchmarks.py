@@ -211,3 +211,54 @@ def test_loader_excludes_future_candles_to_prevent_lookahead(tmp_path) -> None:
     loaded = load_kraken_candles(tmp_path, "BTC/EUR", "4h", "20260101-20260102")
 
     assert loaded["date"].max() == pd.Timestamp("2026-01-01T20:00:00Z")
+
+
+def test_all_deployments_receive_exact_same_plan_cashflows_and_keep_execution_separate(
+    tmp_path,
+) -> None:
+    frame = prepared_candles(
+        datetime(2026, 1, 20, tzinfo=UTC), datetime(2026, 2, 4, 20, tzinfo=UTC)
+    )
+    frame = frame[frame["date"] != datetime(2026, 1, 23, tzinfo=UTC)]
+    write_candles(tmp_path, frame)
+
+    result = run_passive_benchmarks(
+        tmp_path, ["BTC/EUR"], "4h", "20260120-20260205", "200", "40", "0", 23
+    )
+
+    assert result["metadata"]["total_contributions"] == 240.0
+    assert [event["contributed_at"] for event in result["metadata"]["contribution_schedule"]] == [
+        "2026-01-20T00:00:00+00:00",
+        "2026-01-23T00:00:00+00:00",
+    ]
+    assert {row["total_contributions"] for row in result["benchmarks"]} == {240.0}
+    assert {row["deployment_method"] for row in result["benchmarks"]} == {
+        "immediate",
+        "daily_dca",
+        "weekly_dca",
+        "monthly_dca",
+    }
+    immediate = next(row for row in result["benchmarks"] if row["deployment_method"] == "immediate")
+    monthly = next(row for row in result["benchmarks"] if row["deployment_method"] == "monthly_dca")
+    assert immediate["purchases"][1]["contributed_at"] == "2026-01-23T00:00:00+00:00"
+    assert immediate["purchases"][1]["executed_at"] == "2026-01-23T04:00:00+00:00"
+    assert monthly["contribution_schedule"] == result["metadata"]["contribution_schedule"]
+
+
+def test_cli_rejects_removed_independent_contribution_options(monkeypatch, tmp_path) -> None:
+    from roundup_crypto_lab import passive_benchmarks
+
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "passive_benchmarks",
+            "--timerange",
+            "20260101-20260102",
+            "--output-json",
+            str(tmp_path / "result.json"),
+            "--daily-contribution",
+            "10",
+        ],
+    )
+    with pytest.raises(SystemExit, match="2"):
+        passive_benchmarks.main()

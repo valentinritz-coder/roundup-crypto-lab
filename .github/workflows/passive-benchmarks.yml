@@ -4,9 +4,9 @@ on:
     inputs:
       timerange: {description: Strict YYYYMMDD-YYYYMMDD timerange, required: true, type: string}
       timeframe: {description: Fixed timeframe, required: true, default: "4h", type: choice, options: ["4h"]}
-      initial_capital: {description: Buy and Hold capital, required: true, default: "200", type: string}
-      daily_contribution: {description: Daily DCA contribution, required: true, default: "10", type: string}
-      weekly_contribution: {description: Weekly DCA contribution, required: true, default: "10", type: string}
+      initial_capital: {description: Initial investor capital for every deployment method, required: true, default: "200", type: string}
+      monthly_budget: {description: Monthly investor budget for every deployment method, required: true, default: "40", type: string}
+      contribution_day: {description: Calendar contribution day (1-31; missing days use month end), required: true, default: "23", type: string}
       fee: {description: Purchase fee ratio, required: true, default: "0.004", type: string}
 permissions: {contents: read}
 concurrency: {group: kraken-ohlcv-pipeline, cancel-in-progress: false}
@@ -32,18 +32,18 @@ jobs:
           python -c 'from roundup_crypto_lab.passive_benchmarks import parse_timerange; parse_timerange("'"$TIMERANGE"'")'
           mkdir -p artifacts/benchmarks artifacts/logs
       - name: Run passive benchmarks
-        env: {TIMERANGE: '${{ inputs.timerange }}', INITIAL_CAPITAL: '${{ inputs.initial_capital }}', DAILY_CONTRIBUTION: '${{ inputs.daily_contribution }}', WEEKLY_CONTRIBUTION: '${{ inputs.weekly_contribution }}', FEE: '${{ inputs.fee }}'}
+        env: {TIMERANGE: '${{ inputs.timerange }}', INITIAL_CAPITAL: '${{ inputs.initial_capital }}', MONTHLY_BUDGET: '${{ inputs.monthly_budget }}', CONTRIBUTION_DAY: '${{ inputs.contribution_day }}', FEE: '${{ inputs.fee }}'}
         run: |
-          python -m roundup_crypto_lab.passive_benchmarks --data-dir user_data/data/kraken --pairs BTC/EUR ETH/EUR --timeframe 4h --timerange "$TIMERANGE" --initial-capital "$INITIAL_CAPITAL" --daily-contribution "$DAILY_CONTRIBUTION" --weekly-contribution "$WEEKLY_CONTRIBUTION" --weekly-day monday --fee "$FEE" --output-json artifacts/benchmarks/passive-benchmarks.json --output-dir artifacts/benchmarks |& tee artifacts/logs/passive-benchmarks.txt
+          python -m roundup_crypto_lab.passive_benchmarks --data-dir user_data/data/kraken --pairs BTC/EUR ETH/EUR --timeframe 4h --timerange "$TIMERANGE" --initial-capital "$INITIAL_CAPITAL" --monthly-budget "$MONTHLY_BUDGET" --contribution-day "$CONTRIBUTION_DAY" --weekly-day monday --fee "$FEE" --output-json artifacts/benchmarks/passive-benchmarks.json --output-dir artifacts/benchmarks |& tee artifacts/logs/passive-benchmarks.txt
           python -c 'import json; json.load(open("artifacts/benchmarks/passive-benchmarks.json"))'
       - name: Write Job Summary
-        env: {TIMERANGE: '${{ inputs.timerange }}', INITIAL_CAPITAL: '${{ inputs.initial_capital }}', DAILY_CONTRIBUTION: '${{ inputs.daily_contribution }}', WEEKLY_CONTRIBUTION: '${{ inputs.weekly_contribution }}', FEE: '${{ inputs.fee }}'}
+        env: {TIMERANGE: '${{ inputs.timerange }}', INITIAL_CAPITAL: '${{ inputs.initial_capital }}', MONTHLY_BUDGET: '${{ inputs.monthly_budget }}', CONTRIBUTION_DAY: '${{ inputs.contribution_day }}', FEE: '${{ inputs.fee }}'}
         run: |
           python - <<'PY' | tee artifacts/benchmarks/job-summary.md >> "$GITHUB_STEP_SUMMARY"
           import json, os, platform
           data=json.load(open('artifacts/benchmarks/passive-benchmarks.json'))
           print('# Passive benchmarks\n')
-          print(f"- **Timerange:** `{os.environ['TIMERANGE']}`\n- **Timeframe:** `4h`\n- **Fee:** `{os.environ['FEE']}`\n- **Buy & Hold capital:** `{os.environ['INITIAL_CAPITAL']}`\n- **Daily contribution:** `{os.environ['DAILY_CONTRIBUTION']}`\n- **Weekly contribution:** `{os.environ['WEEKLY_CONTRIBUTION']}`\n- **Commit SHA:** `${{ github.sha }}`\n- **Python:** `{platform.python_version()}`\n- **UTC:** `{data['metadata']['generated_at_utc']}`\n")
+          print(f"- **Timerange:** `{os.environ['TIMERANGE']}`\n- **Timeframe:** `4h`\n- **Fee:** `{os.environ['FEE']}`\n- **Initial capital:** `{os.environ['INITIAL_CAPITAL']}`\n- **Monthly budget:** `{os.environ['MONTHLY_BUDGET']}`\n- **Contribution day:** `{os.environ['CONTRIBUTION_DAY']}`\n- **Commit SHA:** `${{ github.sha }}`\n- **Python:** `{platform.python_version()}`\n- **UTC:** `{data['metadata']['generated_at_utc']}`\n")
           print('| Benchmark | Pair | Buys | Invested | Final value | Profit abs | Profit total % | Max drawdown % | Avg entry price |\n| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |')
           for row in data['benchmarks']:
               print(f"| {row['benchmark']} | {row['pair']} | {row['number_of_buys']} | {row['capital_invested']:.2f} | {row['final_value']:.2f} | {row['profit_total_abs']:.2f} | {row['profit_total']:.2%} | {row['max_drawdown_time_weighted']:.2%} | {row['average_entry_price']:.2f} |")

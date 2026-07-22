@@ -1,62 +1,27 @@
 # Passive benchmarks
 
-This lab provides three deterministic, passive references for each independently evaluated pair
-(`BTC/EUR` and `ETH/EUR`): **Buy & Hold**, **Daily DCA**, and **Weekly DCA**. They are not
-Freqtrade strategies and do not combine the two assets into a portfolio.
+This lab compares **Buy & Hold (immediate)**, **Daily DCA**, **Weekly DCA**, and **Monthly DCA** for each independently evaluated pair. They are deterministic passive references, not Freqtrade strategies and not a multi-asset portfolio.
 
-## Data and execution convention
+## One investor plan, separate deployment
 
-The engine reads only the already prepared Freqtrade Feather files in `user_data/data/kraken`; it
-never downloads, patches, or merges market data. It accepts the same strict, end-exclusive
-`YYYYMMDD-YYYYMMDD` timerange and fixed `4h` timeframe used for the cached backtests. It rejects
-missing pairs, duplicate or unordered timestamps, gaps, invalid OHLCV data, and insufficient
-coverage.
+Every result is funded by the same immutable investment plan: `initial_capital`, `monthly_budget`, `fee_ratio`, and `contribution_day`. The initial capital arrives at the start of the strict `YYYYMMDD-YYYYMMDD` timerange. Monthly cash flows occur at `00:00 UTC` on `contribution_day`; when a month lacks that day, the event is on its last calendar day. The range is **start-inclusive and end-exclusive**, so only events in `[start, end)` occur. This makes partial months and leap years deterministic.
 
-Every purchase is scheduled at `00:00 UTC` (on each date for daily DCA, or the configured weekday
-for weekly DCA). It executes at the **open** of the first 4-hour candle at or after that instant.
-Thus no completed candle close is used to choose an entry price, no interpolation is performed,
-and an absent exact candle is deferred forward rather than filled from the past. Buy & Hold buys
-on the first timerange candle. Holdings are marked at each candle close and at the final eligible
-close; no simulated sale is made.
+Cash-flow timing is never rewritten to match market data. Each event remains in JSON metadata and purchase records as `contributed_at`. A deployment may execute at the first candle at or after its scheduled instant when the exact candle is absent; that later `executed_at` does not change the investor contribution date. Immediate and monthly deployment buy when cash arrives. Daily and weekly deployment split each cash flow exactly across eligible daily or configured-weekday schedule slots until the next cash flow (or range end). Therefore every deployment receives and invests exactly the same total capital, without silently creating extra money.
 
-## Capital, fees, and performance
+## Data, fees, and performance
 
-Buy & Hold invests only `initial_capital` once. DCA deliberately treats `daily_contribution` and
-`weekly_contribution` as independent external cash flows, not as draws against that initial
-capital. Its `total_contributions` therefore equals the contribution times its number of buys.
-External contributions are never strategy profit.
+The engine reads prepared Kraken Feather data only, using the `4h` timeframe. Purchases use the first eligible candle **open** and final holdings are marked at the final eligible close; it simulates no sale. Values are calculated with `Decimal` before JSON serialization. For each purchase, `net_contribution = gross_contribution × (1 - fee)` and `quantity = net_contribution / execution_open`. External contributions are not strategy profit.
 
-For every buy, the fee convention is `net_contribution = gross_contribution × (1 - fee)` and
-`quantity = net_contribution / execution_open`. Gross contributions remain the invested amount;
-fees are reported separately. The default fee is `0.004` (0.4%). No sale fee is included because
-the benchmarks never liquidate.
+JSON metadata records the full contribution schedule, initial capital, monthly budget, contribution day, total contributions, and each result's deployment method. `profit_total = (final_value - total_contributions) / total_contributions`; DCA headline drawdown uses the contribution-neutral time-weighted curve.
 
-`profit_total = (final_portfolio_value - total_contributions) / total_contributions`. DCA also
-records `portfolio_value`, `net_value` (portfolio minus cumulative contributions), and a
-contribution-neutral time-weighted share value. Before each contribution, new shares are issued
-for the net (post-fee) contribution at the current open-marked share value; drawdown of this share
-value is reported as
-`max_drawdown_time_weighted`. The raw portfolio drawdown is retained separately but is not the
-headline DCA drawdown because deposits can distort it.
-
-## Local use and outputs
+## Local use
 
 ```bash
 python -m roundup_crypto_lab.passive_benchmarks \
   --timerange 20260123-20260722 \
+  --initial-capital 200 --monthly-budget 40 --contribution-day 23 \
   --output-json artifacts/benchmarks/passive-benchmarks.json \
   --output-dir artifacts/benchmarks
 ```
 
-The JSON contains raw ratios (not percentages), six independent results, purchase histories, and
-equity curves. Detail CSVs have explicit headers. `profit_factor`, `expectancy`, and `winrate`
-are `null`, because passive holdings have no closed trades; human reports show these as N/A.
-The existing comparator accepts the JSON through `--benchmark` and labels its rows
-`category: benchmark`, separately from Freqtrade `category: strategy` rows.
-
-## Limits
-
-These are simple comparison references, not investment recommendations or evidence of future
-profitability. They model no slippage, taxes, deposits fees, withdrawal fees, liquidity limits,
-or sales. They remain dry-run research only, spot-only, long-only, with no leverage, borrowing,
-shorting, staking, or derivatives.
+`--daily-contribution` and `--weekly-contribution` have been removed intentionally: use the single `--monthly-budget` plan input instead. The lab remains dry-run, spot-only, long-only research; it models no slippage, taxes, deposit fees, withdrawal fees, liquidity limits, or sales.

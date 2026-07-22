@@ -117,8 +117,7 @@ The lab also has audited **Buy & Hold**, **Daily DCA**, and **Weekly DCA** refer
 same cached Kraken `BTC/EUR` and `ETH/EUR` 4-hour data and timerange as a backtest. They are a
 separate deterministic Python engine, not Freqtrade strategies: purchases use the first eligible
 candle open at or after `00:00 UTC`, fees apply to each buy, and there is no simulated sale.
-Daily and weekly contributions are independent external cash flows and their drawdown uses a
-contribution-neutral time-weighted equity curve. Run **Actions → Passive benchmarks** after
+Every passive method receives one shared investment plan: initial capital at the timerange start and the same monthly budget on the configured contribution day. Deployment timing (immediate, daily, weekly, or monthly) is separate from investor cash-flow timing, and DCA drawdown uses a contribution-neutral time-weighted equity curve. Run **Actions → Passive benchmarks** after
 **Update Kraken data**, or use `python -m roundup_crypto_lab.passive_benchmarks`. See
 [`docs/passive-benchmarks.md`](docs/passive-benchmarks.md) for the exact conventions, outputs,
 limitations, and the warning that benchmarks do not establish future profitability.

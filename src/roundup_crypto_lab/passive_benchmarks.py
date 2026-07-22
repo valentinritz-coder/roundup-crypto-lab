@@ -9,12 +9,19 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import sys
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any
 
 import pandas as pd
+
+from roundup_crypto_lab.investment_plan import (
+    CashFlowEvent,
+    InvestmentPlan,
+    contribution_schedule,
+)
 
 TIMEFRAME = "4h"
 INTERVAL = timedelta(hours=4)
@@ -143,11 +150,12 @@ def _build_result(
     final_price = Decimal(str(candles.iloc[-1]["close"]))
     final_value = quantity * final_price
     equity, share_value, contribution_total, shares = [], Decimal("1"), Decimal("0"), Decimal("0")
-    by_index = {item["candle_index"]: item for item in purchases}
+    by_index: dict[int, list[dict[str, Any]]] = {}
+    for purchase in purchases:
+        by_index.setdefault(purchase["candle_index"], []).append(purchase)
     running_quantity = Decimal("0")
     for index, candle in candles.iterrows():
-        if index in by_index:
-            purchase = by_index[index]
+        for purchase in by_index.get(index, []):
             open_value = running_quantity * Decimal(str(candle["open"]))
             share_value = Decimal("1") if shares == 0 else open_value / shares
             shares += purchase["net_contribution"] / share_value
@@ -266,54 +274,130 @@ def dca(
     )
 
 
+def _purchase(
+    candles: pd.DataFrame,
+    event: CashFlowEvent,
+    scheduled_at: datetime,
+    amount: Decimal,
+    fee: Decimal,
+) -> dict[str, Any] | None:
+    matched = _purchase_at_or_after(candles, scheduled_at)
+    if matched is None:
+        return None
+    index, candle = matched
+    price = Decimal(str(candle["open"]))
+    return {
+        "contributed_at": event.contributed_at.isoformat(),
+        "scheduled_at": scheduled_at.isoformat(),
+        "executed_at": candle["date"].to_pydatetime().isoformat(),
+        "execution_price": price,
+        "gross_contribution": amount,
+        "fee_paid": amount * fee,
+        "net_contribution": amount * (Decimal("1") - fee),
+        "quantity": amount * (Decimal("1") - fee) / price,
+        "candle_index": index,
+    }
+
+
+def _deployment_dates(
+    start: datetime, end: datetime, method: str, weekly_day: int
+) -> list[datetime]:
+    dates: list[datetime] = []
+    current = start.replace(hour=0, minute=0, second=0, microsecond=0)
+    while current < end:
+        if method == "daily_dca" or (method == "weekly_dca" and current.weekday() == weekly_day):
+            dates.append(current)
+        current += timedelta(days=1)
+    return dates
+
+
+def _deploy(
+    plan: InvestmentPlan,
+    events: tuple[CashFlowEvent, ...],
+    candles: pd.DataFrame,
+    method: str,
+    weekly_day: int,
+) -> list[dict[str, Any]]:
+    """Deploy each cash flow only after it arrives; DCA splits it over its funding interval."""
+    end = candles.iloc[-1]["date"].to_pydatetime().astimezone(UTC) + INTERVAL
+    purchases: list[dict[str, Any]] = []
+    for position, event in enumerate(events):
+        next_at = events[position + 1].contributed_at if position + 1 < len(events) else end
+        if method in {"immediate", "monthly_dca"}:
+            scheduled = [event.contributed_at]
+        else:
+            scheduled = [
+                date
+                for date in _deployment_dates(event.contributed_at, next_at, method, weekly_day)
+                if date >= event.contributed_at
+            ]
+            if not scheduled:
+                scheduled = [event.contributed_at]
+        amount = event.amount / len(scheduled)
+        for scheduled_at in scheduled:
+            purchase = _purchase(candles, event, scheduled_at, amount, plan.fee_ratio)
+            if purchase is not None:
+                purchases.append(purchase)
+    return purchases
+
+
 def run_passive_benchmarks(
     data_dir: Path,
     pairs: list[str],
     timeframe: str,
     timerange: str,
     initial_capital: Decimal | str = Decimal("200"),
-    daily_contribution: Decimal | str = Decimal("10"),
-    weekly_contribution: Decimal | str = Decimal("10"),
+    monthly_budget: Decimal | str = Decimal("40"),
     fee: Decimal | str = Decimal("0.004"),
+    contribution_day: int = 23,
     weekly_day: str = "monday",
 ) -> dict[str, Any]:
-    """Run six independent benchmark/pair calculations using only prepared local data."""
-    parse_timerange(timerange)
-    initial, daily, weekly = (
-        _decimal(value, name)
-        for value, name in (
-            (initial_capital, "initial capital"),
-            (daily_contribution, "daily contribution"),
-            (weekly_contribution, "weekly contribution"),
-        )
-    )
-    fee_value = _decimal(fee, "fee", allow_zero=True)
-    if fee_value >= 1:
-        raise ValueError("fee must be lower than 1")
+    """Run identically funded passive deployment methods on local prepared data."""
+    start, end = parse_timerange(timerange)
+    plan = InvestmentPlan(initial_capital, monthly_budget, fee, contribution_day)
     if weekly_day.lower() not in WEEKDAYS:
         raise ValueError(f"weekly day must be one of: {', '.join(WEEKDAYS)}")
     if not pairs:
         raise ValueError("at least one pair is required")
-    benchmarks = []
-    pair_metadata = {}
+    events = contribution_schedule(plan, start, end)
+    schedule_metadata = [
+        {
+            "contributed_at": e.contributed_at.isoformat(),
+            "amount": _number(e.amount),
+            "kind": e.kind,
+        }
+        for e in events
+    ]
+    benchmarks, pair_metadata = [], {}
+    methods = (
+        ("BuyAndHold", "immediate"),
+        ("DailyDCA", "daily_dca"),
+        ("WeeklyDCA", "weekly_dca"),
+        ("MonthlyDCA", "monthly_dca"),
+    )
     for pair in pairs:
         candles = load_kraken_candles(data_dir, pair, timeframe, timerange)
         pair_metadata[pair] = _candle_metadata(candles, timerange)
-        benchmarks.extend(
-            (
-                buy_and_hold(candles, pair, initial, fee_value),
-                dca(candles, pair, daily, fee_value),
-                dca(candles, pair, weekly, fee_value, weekly_day=WEEKDAYS[weekly_day.lower()]),
-            )
-        )
+        for name, method in methods:
+            purchases = _deploy(plan, events, candles, method, WEEKDAYS[weekly_day.lower()])
+            result = _build_result(name, pair, candles, purchases, plan.fee_ratio)
+            result["deployment_method"] = method
+            result["contribution_schedule"] = schedule_metadata
+            benchmarks.append(result)
+    total = sum((event.amount for event in events), Decimal("0"))
     return {
         "metadata": {
             "timerange": timerange,
             "timeframe": timeframe,
-            "fee": _number(fee_value),
+            "fee": _number(plan.fee_ratio),
             "data_dir": str(data_dir),
             "generated_at_utc": datetime.now(UTC).isoformat(),
             "pairs": pairs,
+            "initial_capital": _number(plan.initial_capital),
+            "monthly_budget": _number(plan.monthly_budget),
+            "contribution_day": plan.contribution_day,
+            "contribution_schedule": schedule_metadata,
+            "total_contributions": _number(total),
             "pair_candle_coverage": pair_metadata,
         },
         "benchmarks": benchmarks,
@@ -349,11 +433,16 @@ def main() -> None:
     parser.add_argument("--timerange", required=True)
     parser.add_argument("--initial-capital", default="200")
     parser.add_argument("--fee", default="0.004")
-    parser.add_argument("--daily-contribution", default="10")
-    parser.add_argument("--weekly-contribution", default="10")
+    parser.add_argument("--monthly-budget", default="40")
+    parser.add_argument("--contribution-day", type=int, default=23)
     parser.add_argument("--weekly-day", default="monday")
     parser.add_argument("--output-json", required=True, type=Path)
     parser.add_argument("--output-dir", type=Path)
+    legacy_options = {"--daily-contribution", "--weekly-contribution"}
+    if legacy_options.intersection(sys.argv[1:]):
+        parser.error(
+            "--daily-contribution and --weekly-contribution were removed; use --monthly-budget"
+        )
     args = parser.parse_args()
     result = run_passive_benchmarks(
         args.data_dir,
@@ -361,9 +450,9 @@ def main() -> None:
         args.timeframe,
         args.timerange,
         args.initial_capital,
-        args.daily_contribution,
-        args.weekly_contribution,
+        args.monthly_budget,
         args.fee,
+        args.contribution_day,
         args.weekly_day,
     )
     args.output_json.parent.mkdir(parents=True, exist_ok=True)
