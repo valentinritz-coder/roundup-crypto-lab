@@ -42,6 +42,7 @@ def test_comparison_emits_required_metrics(tmp_path: Path) -> None:
     assert {row["strategy"] for row in rows} == REQUIRED_STRATEGIES
     assert set(rows[0]) == {
         "strategy",
+        "category",
         "trades",
         "profit_total",
         "profit_total_abs",

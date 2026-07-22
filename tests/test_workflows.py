@@ -176,12 +176,30 @@ def test_all_strategy_comparison_workflow_contract() -> None:
     backtests = workflow.split("run_backtest()", 1)[1].split(
         "run_backtest RoundupBreakoutStrategy", 1
     )[0]
-    assert '--backtest-directory artifacts/results' in backtests
-    assert 'artifacts/results/$2' not in backtests
-    assert 'rm -f artifacts/results/backtest-result-*.zip' in backtests
+    assert "--backtest-directory artifacts/results" in backtests
+    assert "artifacts/results/$2" not in backtests
+    assert "rm -f artifacts/results/backtest-result-*.zip" in backtests
     assert "find artifacts/results -maxdepth 1 -type f -name 'backtest-result-*.zip'" in backtests
     assert "sort -nr" in backtests
     assert 'test "${#zips[@]}" -eq 1' in backtests
     assert 'mv "${zips[0]}" "artifacts/results/$result_name.zip"' in backtests
     assert "-name 'backtest-result-*.meta.json' -delete" in backtests
     assert "GITHUB_STEP_SUMMARY" in workflow and "if: always()" in workflow
+
+
+def test_passive_benchmarks_workflow_contract() -> None:
+    workflow = content("passive-benchmarks.yml")
+    assert yaml.safe_load(workflow)
+    assert "workflow_dispatch:" in workflow
+    assert all(trigger not in workflow for trigger in ("push:", "pull_request", "schedule:"))
+    assert "timerange:" in workflow and "required: true" in workflow
+    assert 'options: ["4h"]' in workflow and 'test "$TIMEFRAME" = 4h' in workflow
+    assert "BTC/EUR ETH/EUR" in workflow
+    assert "download-data" not in workflow and "hyperopt" not in workflow
+    assert "kraken-ohlcv-pipeline" in workflow
+    update = content("update-kraken-data.yml")
+    assert cache_restore_settings(workflow) == cache_restore_settings(update)
+    assert "passive_benchmarks" in workflow
+    assert "--output-json" in workflow and "--output-dir" in workflow
+    assert "GITHUB_STEP_SUMMARY" in workflow
+    assert "actions/upload-artifact@v4" in workflow and "if: always()" in workflow

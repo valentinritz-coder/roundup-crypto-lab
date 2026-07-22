@@ -45,8 +45,10 @@ def _read_result(path: Path) -> dict[str, Any]:
 
 
 def create_comparison(
-    results: dict[str, Path], required_strategies: set[str] | None = None
-) -> list[dict[str, int | float | str]]:
+    results: dict[str, Path],
+    required_strategies: set[str] | None = None,
+    benchmark_path: Path | None = None,
+) -> list[dict[str, int | float | str | None]]:
     """Return comparable metrics, rejecting incomplete, duplicate, or invalid input."""
     if not results:
         raise ValueError("Comparison report cannot be empty")
@@ -66,7 +68,10 @@ def create_comparison(
             raise ValueError(f"Result is missing strategy {requested_name}: {path}")
         if requested_name in seen:
             raise ValueError(f"Duplicate strategy in comparison: {requested_name}")
-        row: dict[str, int | float | str] = {"strategy": requested_name}
+        row: dict[str, int | float | str | None] = {
+            "strategy": requested_name,
+            "category": "strategy",
+        }
         for metric in METRICS:
             value = strategy_result.get(metric)
             if (
@@ -78,6 +83,37 @@ def create_comparison(
             row["trades" if metric == "total_trades" else metric] = value
         seen.add(requested_name)
         rows.append(row)
+    if benchmark_path:
+        try:
+            document = json.loads(benchmark_path.read_text(encoding="utf-8"))
+            benchmarks = document["benchmarks"]
+        except (OSError, json.JSONDecodeError, KeyError, TypeError) as exc:
+            raise ValueError(f"invalid passive benchmark JSON: {benchmark_path}") from exc
+        if not isinstance(benchmarks, list):
+            raise ValueError("passive benchmark JSON must contain a benchmarks list")
+        for benchmark in benchmarks:
+            if not isinstance(benchmark, dict):
+                raise ValueError("passive benchmark entry must be an object")
+            for key in ("benchmark", "pair", "number_of_buys", "profit_total", "profit_total_abs"):
+                if key not in benchmark:
+                    raise ValueError(f"passive benchmark missing {key}")
+            drawdown = benchmark.get("max_drawdown_time_weighted", benchmark.get("max_drawdown"))
+            if not isinstance(drawdown, (int, float)) or not math.isfinite(drawdown):
+                raise ValueError("passive benchmark has invalid drawdown")
+            rows.append(
+                {
+                    "strategy": benchmark["benchmark"],
+                    "category": "benchmark",
+                    "pair": benchmark["pair"],
+                    "trades": benchmark["number_of_buys"],
+                    "profit_total": benchmark["profit_total"],
+                    "profit_total_abs": benchmark["profit_total_abs"],
+                    "max_drawdown_account": drawdown,
+                    "winrate": None,
+                    "profit_factor": None,
+                    "expectancy": None,
+                }
+            )
     return rows
 
 
@@ -85,6 +121,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--result", action="append", required=True, metavar="STRATEGY=PATH")
     parser.add_argument("--expected-strategy", action="append", metavar="STRATEGY")
+    parser.add_argument("--benchmark", type=Path, help="Passive benchmark consolidated JSON")
     parser.add_argument("--output", required=True, type=Path)
     args = parser.parse_args()
     inputs: dict[str, Path] = {}
@@ -94,7 +131,7 @@ def main() -> None:
             raise SystemExit("Each --result must be a unique STRATEGY=PATH pair")
         inputs[strategy] = Path(raw_path)
     expected = set(args.expected_strategy) if args.expected_strategy else None
-    rows = create_comparison(inputs, expected)
+    rows = create_comparison(inputs, expected, args.benchmark)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(rows, indent=2) + "\n", encoding="utf-8")
 

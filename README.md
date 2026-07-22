@@ -95,6 +95,18 @@ Expected roundups: EUR 0.68 and EUR 0.83.
 - SMA 20 exit.
 - ATR-based stop.
 
+## Passive comparison references
+
+The lab also has audited **Buy & Hold**, **Daily DCA**, and **Weekly DCA** references for the
+same cached Kraken `BTC/EUR` and `ETH/EUR` 4-hour data and timerange as a backtest. They are a
+separate deterministic Python engine, not Freqtrade strategies: purchases use the first eligible
+candle open at or after `00:00 UTC`, fees apply to each buy, and there is no simulated sale.
+Daily and weekly contributions are independent external cash flows and their drawdown uses a
+contribution-neutral time-weighted equity curve. Run **Actions → Passive benchmarks** after
+**Update Kraken data**, or use `python -m scripts.passive_benchmarks`. See
+[`docs/passive-benchmarks.md`](docs/passive-benchmarks.md) for the exact conventions, outputs,
+limitations, and the warning that benchmarks do not establish future profitability.
+
 ## Breakout strategy experiments
 
 The unchanged `RoundupBreakoutStrategy` is the comparison baseline. Experimental variants add a
