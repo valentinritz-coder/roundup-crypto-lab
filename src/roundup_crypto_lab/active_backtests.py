@@ -3,8 +3,8 @@
 Freqtrade's public backtesting interface accepts one starting wallet; it does not
 provide a public historical ``deposit`` event.  This module therefore does not
 monkey-patch Freqtrade.  Instead it is a small repository-owned execution
-adapter: a strategy supplies its already-causal entry/exit decisions for each
-candle, and this adapter applies the shared :class:`InvestmentPlan`, wallet
+    adapter: a strategy supplies decisions derived from already-completed candles,
+    and this adapter applies the shared :class:`InvestmentPlan`, wallet
 rules, and spot fees.  It is deliberately single-asset and single-position.
 """
 
@@ -67,7 +67,21 @@ class WalletState:
     open_position: bool
 
 
-DecisionProvider = Callable[[Candle, WalletState], StrategyDecision]
+# The provider deliberately receives no candle.  Signals must be prepared from
+# completed data before execution; this makes observing a candle close before an
+# order at that candle's open impossible through this public contract.
+DecisionProvider = Callable[[WalletState], StrategyDecision]
+
+
+def _maximum_drawdown(values: Iterable[Decimal]) -> Decimal:
+    peak: Decimal | None = None
+    drawdown = Decimal("0")
+    for value in values:
+        if peak is None or value > peak:
+            peak = value
+        elif peak and peak > 0:
+            drawdown = max(drawdown, (peak - value) / peak)
+    return drawdown
 
 
 def _events(
@@ -94,10 +108,10 @@ def run_active_backtest(
     """Run deterministic spot accounting around causal strategy decisions.
 
     Contributions are applied before the decision at the first candle whose
-    timestamp is at or after their UTC timestamp.  No callback is made for a
-    contribution, so a deposit cannot create a trade.  A callback can only use
-    the wallet it receives at that candle; a buy exceeding that cash fails
-    closed instead of silently borrowing or changing historical stakes.
+    timestamp is at or after their UTC timestamp.  Decisions are precomputed
+    from the *previous completed* candle; the provider gets only wallet state,
+    never current OHLCV. No callback is made for a contribution, so a deposit
+    cannot create a trade. A buy exceeding available cash fails closed.
     """
     if start.tzinfo is None or end.tzinfo is None:
         raise ValueError("timerange timestamps must be timezone-aware")
@@ -117,7 +131,7 @@ def run_active_backtest(
 
     events = _events(plan, start, end, mode)
     event_index = 0
-    cash = quantity = contributed = deployed = fees = Decimal("0")
+    cash = quantity = contributed = current_deployed = cumulative_deployed = fees = Decimal("0")
     shares = Decimal("0")
     share_value = Decimal("1")
     contributions: list[dict[str, object]] = []
@@ -148,7 +162,7 @@ def run_active_backtest(
             event_index += 1
 
         state = WalletState(timestamp, cash, quantity, quantity > 0)
-        decision = decide(candle, state)
+        decision = decide(state)
         if not isinstance(decision, StrategyDecision):
             raise ValueError("strategy decision provider must return StrategyDecision")
         if decision.action is Action.BUY:
@@ -160,7 +174,8 @@ def run_active_backtest(
             fee = gross * plan.fee_ratio
             quantity = (gross - fee) / candle.open
             cash -= gross
-            deployed += gross
+            current_deployed = gross
+            cumulative_deployed += gross
             fees += fee
             trades.append(
                 {
@@ -190,6 +205,7 @@ def run_active_backtest(
                 }
             )
             quantity = Decimal("0")
+            current_deployed = Decimal("0")
         elif decision.action is not Action.HOLD:
             raise ValueError("unknown strategy action")
 
@@ -201,7 +217,8 @@ def run_active_backtest(
             {
                 "timestamp": timestamp.isoformat(),
                 "free_cash": cash,
-                "deployed_capital": deployed,
+                "current_deployed_capital": current_deployed,
+                "cumulative_gross_deployed": cumulative_deployed,
                 "crypto_value": crypto_value,
                 "equity": equity,
                 "cumulative_contributions": contributed,
@@ -212,6 +229,7 @@ def run_active_backtest(
     if event_index != len(events):
         raise ValueError("timerange candles did not credit every contribution")
     final_equity = equity_curve[-1]["equity"]
+    share_values = (row["time_weighted_share_value"] for row in equity_curve)
     return {
         "capital_mode": mode.value,
         "contribution_schedule": [
@@ -226,9 +244,12 @@ def run_active_backtest(
         "trades": trades,
         "equity_curve": equity_curve,
         "total_contributed_capital": contributed,
-        "deployed_capital": deployed,
+        "current_deployed_capital": current_deployed,
+        "cumulative_gross_deployed": cumulative_deployed,
         "free_cash": cash,
         "final_equity": final_equity,
         "investment_return": final_equity - contributed,
         "fees_paid": fees,
+        "contribution_neutral_return": share_value - Decimal("1"),
+        "contribution_neutral_max_drawdown": _maximum_drawdown(share_values),
     }

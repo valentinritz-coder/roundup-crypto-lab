@@ -5,12 +5,16 @@ for depositing cash into its simulated wallet at historical timestamps. The lab 
 that limitation by modifying Freqtrade internals or by giving a backtest all future contributions at
 its start.
 
-`roundup_crypto_lab.active_backtests` is therefore a repository-owned, deterministic adapter for
-an active, one-asset, one-position execution stream. It uses the shared `InvestmentPlan` and its
-`contribution_schedule` exactly as passive benchmarks do. A strategy decision provider receives a
-wallet snapshot at each candle and can issue its normal buy, sell, or hold decision. Contribution
-events are processed before that snapshot, are recorded independently, and never invoke the
-decision provider: a contribution cannot itself create a trade.
+`roundup_crypto_lab.freqtrade_active` connects the adapter to the actual strategy source. It imports
+each selected class from `user_data/strategies` and calls its `populate_indicators`,
+`populate_entry_trend`, and `populate_exit_trend` methods; no indicator or signal formula is copied
+into the accounting code. A signal calculated from completed candle N is shifted to execute at
+candle N+1's open. The wallet decision callback receives no OHLCV values, so current-candle close,
+high, low, and volume cannot influence an order at that candle's open.
+
+The adapter uses the shared `InvestmentPlan` and `contribution_schedule` exactly as passive
+benchmarks do. Contribution events are processed before the N+1 execution snapshot, recorded
+independently, and never generate a strategy signal.
 
 ## Modes and timestamps
 
@@ -27,14 +31,21 @@ does not alter that trade's original quantity or stake.
 ## Output and limitation
 
 The result contains a complete `contribution_ledger`, trade ledger, and equity curve. Each equity
-row reports free cash, deployed capital, crypto value, total equity, cumulative contributions, and
+row reports free cash, current deployed capital, cumulative gross deployed capital, crypto value,
+total equity, cumulative contributions, and
 `investment_return = equity - cumulative_contributions`; the time-weighted share value is included
 for contribution-neutral performance and drawdown analysis. All money is represented by `Decimal`
 inside the adapter.
 
-This adapter is intentionally not a multi-asset allocator and does not replace Freqtrade's native
-backtest reporting. To connect a Freqtrade strategy faithfully, feed the adapter the strategy's
-causal per-candle decisions and the same execution prices/fee rules used by the selected research
-configuration. That makes the cash-flow accounting auditable without an unsupported monkey patch,
-but it means a direct Freqtrade CLI backtest remains a one-shot-capital backtest until Freqtrade
+The **All strategy comparison** workflow accepts `capital_mode`, `initial_capital`,
+`monthly_budget`, and `contribution_day`; it emits one JSON artifact per active strategy under
+`artifacts/results/active/`. Each contains the plan, schedule, contribution ledger, trade ledger,
+and equity curve. Both funding modes use the same plan definition as passive methods.
+
+This adapter is intentionally not a multi-asset allocator and does not replace native Freqtrade
+reporting. It reproduces the strategy's indicator/signal methods, next-open signal execution,
+one-position limit, configured fee, and `tradable_balance_ratio` stake sizing. It does **not** yet
+reproduce native limit-order fill modelling, intrabar/custom stop-loss behaviour, ROI exits, or
+native order timeouts; recurring artifacts must not be represented as byte-for-byte native
+Freqtrade-equivalent results. Native CLI backtests remain the one-shot reference until Freqtrade
 exposes historical wallet deposits through a public interface.

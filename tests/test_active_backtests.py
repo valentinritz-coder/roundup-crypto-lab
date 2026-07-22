@@ -32,7 +32,7 @@ def test_no_trade_cash_equals_contributions_and_return_is_zero() -> None:
         plan(),
         at(1),
         datetime(2026, 2, 1, tzinfo=UTC),
-        lambda *_: StrategyDecision(),
+        lambda _: StrategyDecision(),
     )
 
     assert result["free_cash"] == Decimal("140")
@@ -47,14 +47,15 @@ def test_buy_once_leaves_later_contribution_as_cash() -> None:
         plan(),
         at(1),
         datetime(2026, 2, 1, tzinfo=UTC),
-        lambda current, state: (
+        lambda state: (
             StrategyDecision(Action.BUY, state.cash)
-            if current.timestamp == at(1)
+            if state.timestamp == at(1)
             else StrategyDecision()
         ),
     )
 
-    assert result["deployed_capital"] == Decimal("100")
+    assert result["current_deployed_capital"] == Decimal("100")
+    assert result["cumulative_gross_deployed"] == Decimal("100")
     assert result["free_cash"] == Decimal("40")
     assert result["trades"] == [
         {
@@ -71,13 +72,11 @@ def test_buy_once_leaves_later_contribution_as_cash() -> None:
 def test_recurring_entry_can_only_use_cash_available_at_its_timestamp() -> None:
     seen_cash: list[Decimal] = []
 
-    def decide(current: Candle, state: object) -> StrategyDecision:
+    def decide(state: object) -> StrategyDecision:
         cash = state.cash  # type: ignore[attr-defined]
         seen_cash.append(cash)
         return (
-            StrategyDecision(Action.BUY, cash)
-            if current.timestamp == at(15)
-            else StrategyDecision()
+            StrategyDecision(Action.BUY, cash) if state.timestamp == at(15) else StrategyDecision()
         )
 
     result = run_active_backtest(
@@ -94,11 +93,11 @@ def test_contribution_during_open_trade_does_not_mutate_historical_stake() -> No
         plan(),
         at(1),
         datetime(2026, 2, 1, tzinfo=UTC),
-        lambda current, state: (
+        lambda state: (
             StrategyDecision(Action.BUY, state.cash)
-            if current.timestamp == at(1)
+            if state.timestamp == at(1)
             else StrategyDecision(Action.SELL)
-            if current.timestamp == at(16)
+            if state.timestamp == at(16)
             else StrategyDecision()
         ),
     )
@@ -106,6 +105,8 @@ def test_contribution_during_open_trade_does_not_mutate_historical_stake() -> No
     assert result["trades"][0]["gross_stake"] == Decimal("100")  # type: ignore[index]
     assert result["trades"][1]["gross_stake"] == Decimal("100")  # type: ignore[index]
     assert result["free_cash"] == Decimal("140")
+    assert result["current_deployed_capital"] == Decimal("0")
+    assert result["cumulative_gross_deployed"] == Decimal("100")
 
 
 def test_one_shot_mode_keeps_existing_one_shot_semantics() -> None:
@@ -114,7 +115,7 @@ def test_one_shot_mode_keeps_existing_one_shot_semantics() -> None:
         plan(),
         at(1),
         datetime(2026, 2, 1, tzinfo=UTC),
-        lambda *_: StrategyDecision(),
+        lambda _: StrategyDecision(),
         mode=CapitalMode.ONE_SHOT_CAPITAL,
     )
     assert result["capital_mode"] == "one_shot_capital"
@@ -128,5 +129,5 @@ def test_end_exclusive_timerange_rejects_end_candle_and_never_credits_its_cashfl
             plan(),
             at(1),
             datetime(2026, 2, 1, tzinfo=UTC),
-            lambda *_: StrategyDecision(),
+            lambda _: StrategyDecision(),
         )

@@ -7,6 +7,10 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
+from roundup_crypto_lab.active_backtests import CapitalMode
+from roundup_crypto_lab.freqtrade_active import run_freqtrade_strategy
+from roundup_crypto_lab.investment_plan import InvestmentPlan
+
 STRATEGIES_DIR = Path("user_data/strategies").resolve()
 STRATEGY_NAMES = (
     "RoundupBreakoutStrategy",
@@ -116,3 +120,24 @@ def test_strategy_sources_do_not_reference_future_candles() -> None:
                 and isinstance(node.args[0].op, ast.USub)
             ):
                 pytest.fail(f"Negative shift in {path}")
+
+
+def test_real_baseline_strategy_runs_through_recurring_cash_flow_bridge() -> None:
+    rows = 130
+    frame = candles()
+    frame.insert(0, "date", pd.date_range("2026-01-01", periods=rows, freq="4h", tz="UTC"))
+    # The final completed candle creates an entry signal.  It can only execute
+    # at a later open, so this fixture proves no same-open use of its close.
+    frame.loc[125, "close"] = 1_000
+    result = run_freqtrade_strategy(
+        frame,
+        InvestmentPlan("100", "40", "0", 15),
+        "RoundupBreakoutStrategy",
+        STRATEGIES_DIR,
+        frame.iloc[0]["date"].to_pydatetime(),
+        (frame.iloc[-1]["date"] + pd.Timedelta(hours=4)).to_pydatetime(),
+        mode=CapitalMode.RECURRING_MONTHLY_CONTRIBUTIONS,
+    )
+    assert result["strategy"] == "RoundupBreakoutStrategy"
+    assert result["signal_execution"] == "completed candle N signals execute at candle N+1 open"
+    assert "contribution_ledger" in result and "equity_curve" in result

@@ -4,6 +4,10 @@ on:
     inputs:
       timerange: {description: Strict YYYYMMDD-YYYYMMDD timerange, required: true, type: string}
       timeframe: {description: Fixed Freqtrade timeframe, required: true, default: "4h", type: choice, options: ["4h"]}
+      capital_mode: {description: Active capital mode, required: true, default: one_shot_capital, type: choice, options: [one_shot_capital, recurring_monthly_contributions]}
+      initial_capital: {description: Initial investor capital in EUR, required: true, default: "200", type: string}
+      monthly_budget: {description: Monthly investor contribution in EUR, required: true, default: "40", type: string}
+      contribution_day: {description: Calendar contribution day, required: true, default: "23", type: string}
 permissions: {contents: read}
 concurrency: {group: kraken-ohlcv-pipeline, cancel-in-progress: false}
 env: {FREQTRADE_VERSION: '2026.6', FREQTRADE_COMMIT: b604e2fd70539f7f73d3c62c16ce0b155bbab319}
@@ -39,7 +43,7 @@ jobs:
       - name: Run seven equivalent backtests
         env: {TIMERANGE: '${{ inputs.timerange }}', TIMEFRAME: '${{ inputs.timeframe }}'}
         run: |
-          mkdir -p artifacts/results artifacts/logs
+          mkdir -p artifacts/results artifacts/results/active artifacts/logs
           run_backtest() {
             local strategy="$1" result_name="$2"
             rm -f artifacts/results/backtest-result-*.zip
@@ -56,6 +60,13 @@ jobs:
           run_backtest RoundupTrendPullbackStrategy trend-pullback
           run_backtest RoundupConfirmedBreakoutStrategy confirmed-breakout
           run_backtest RoundupVolatilitySqueezeStrategy volatility-squeeze
+      - name: Run auditable active cash-flow artifacts
+        env: {TIMERANGE: '${{ inputs.timerange }}', CAPITAL_MODE: '${{ inputs.capital_mode }}', INITIAL_CAPITAL: '${{ inputs.initial_capital }}', MONTHLY_BUDGET: '${{ inputs.monthly_budget }}', CONTRIBUTION_DAY: '${{ inputs.contribution_day }}'}
+        run: |
+          fee="$(python -c 'import json; print(json.load(open("user_data/config.json")).get("fee", "0.004"))')"
+          for strategy in RoundupBreakoutStrategy RoundupBreakoutTrendStrategy RoundupBreakoutAtrStrategy RoundupBreakoutAtrVolumeStrategy RoundupTrendPullbackStrategy RoundupConfirmedBreakoutStrategy RoundupVolatilitySqueezeStrategy; do
+            python -m roundup_crypto_lab.freqtrade_active --data-file user_data/data/kraken/BTC_EUR-4h.feather --strategy "$strategy" --timerange "$TIMERANGE" --capital-mode "$CAPITAL_MODE" --initial-capital "$INITIAL_CAPITAL" --monthly-budget "$MONTHLY_BUDGET" --contribution-day "$CONTRIBUTION_DAY" --fee "$fee" --output "artifacts/results/active/$strategy.json"
+          done
       - name: Generate, validate, and summarize comparison
         env: {TIMERANGE: '${{ inputs.timerange }}', TIMEFRAME: '${{ inputs.timeframe }}'}
         run: |
