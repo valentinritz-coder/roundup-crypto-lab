@@ -1,4 +1,5 @@
 from datetime import UTC, datetime
+from decimal import Decimal
 
 import pandas as pd
 import pytest
@@ -251,3 +252,52 @@ def test_cli_rejects_equals_form_of_removed_contribution_options(
     )
     with pytest.raises(SystemExit, match="2"):
         passive_benchmarks.main()
+
+
+def test_daily_dca_deploys_full_same_timestamp_bucket(tmp_path) -> None:
+    write_candles(
+        tmp_path,
+        prepared_candles(datetime(2026, 1, 23, tzinfo=UTC), datetime(2026, 1, 25, 20, tzinfo=UTC)),
+    )
+    result = run_passive_benchmarks(
+        tmp_path, ["BTC/EUR"], "4h", "20260123-20260126", "200", "40", "0", 23
+    )
+    daily = next(row for row in result["benchmarks"] if row["deployment_method"] == "daily_dca")
+    assert daily["total_contributions"] == daily["capital_invested"] == 240.0
+    assert daily["cash_balance"] == 0.0
+    assert daily["number_of_buys"] == 3
+    first = daily["equity_curve"][0]
+    assert first["cumulative_contributions"] == 240.0
+    assert first["capital_invested"] == 80.0
+    assert first["cash_balance"] == 160.0
+    assert first["portfolio_value"] == 240.0
+    assert first["net_value"] == 0.0
+
+
+def test_weekly_dca_deploys_full_same_timestamp_bucket(tmp_path) -> None:
+    write_candles(
+        tmp_path,
+        prepared_candles(datetime(2026, 2, 23, tzinfo=UTC), datetime(2026, 3, 9, 20, tzinfo=UTC)),
+    )
+    result = run_passive_benchmarks(
+        tmp_path, ["BTC/EUR"], "4h", "20260223-20260310", "200", "40", "0", 23, "monday"
+    )
+    weekly = next(row for row in result["benchmarks"] if row["deployment_method"] == "weekly_dca")
+    assert weekly["total_contributions"] == weekly["capital_invested"] == 240.0
+    assert weekly["cash_balance"] == 0.0
+    assert weekly["number_of_buys"] == 3
+    assert [purchase["gross_contribution"] for purchase in weekly["purchases"]] == [
+        80.0,
+        80.0,
+        80.0,
+    ]
+
+
+def test_deployment_buckets_are_deterministic_when_same_timestamp_event_order_changes() -> None:
+    from roundup_crypto_lab.investment_plan import CashFlowEvent
+    from roundup_crypto_lab.passive_benchmarks import deployment_buckets
+
+    timestamp = datetime(2026, 1, 23, tzinfo=UTC)
+    initial = CashFlowEvent(timestamp, Decimal("200"), "initial")
+    monthly = CashFlowEvent(timestamp, Decimal("40"), "monthly")
+    assert deployment_buckets((initial, monthly)) == deployment_buckets((monthly, initial))

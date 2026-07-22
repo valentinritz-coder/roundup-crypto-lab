@@ -46,7 +46,8 @@ jobs:
           print(f"- **Timerange:** `{os.environ['TIMERANGE']}`\n- **Timeframe:** `4h`\n- **Fee:** `{os.environ['FEE']}`\n- **Initial capital:** `{os.environ['INITIAL_CAPITAL']}`\n- **Monthly budget:** `{os.environ['MONTHLY_BUDGET']}`\n- **Contribution day:** `{os.environ['CONTRIBUTION_DAY']}`\n- **Commit SHA:** `${{ github.sha }}`\n- **Python:** `{platform.python_version()}`\n- **UTC:** `{data['metadata']['generated_at_utc']}`\n")
           print('| Benchmark | Pair | Buys | Invested | Final value | Profit abs | Profit total % | Max drawdown % | Avg entry price |\n| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |')
           for row in data['benchmarks']:
-              print(f"| {row['benchmark']} | {row['pair']} | {row['number_of_buys']} | {row['capital_invested']:.2f} | {row['final_value']:.2f} | {row['profit_total_abs']:.2f} | {row['profit_total']:.2%} | {row['max_drawdown_time_weighted']:.2%} | {row['average_entry_price']:.2f} |")
+              average_entry = "N/A" if row['average_entry_price'] is None else f"{row['average_entry_price']:.2f}"
+              print(f"| {row['benchmark']} | {row['pair']} | {row['number_of_buys']} | {row['capital_invested']:.2f} | {row['final_value']:.2f} | {row['profit_total_abs']:.2f} | {row['profit_total']:.2%} | {row['max_drawdown_time_weighted']:.2%} | {average_entry} |")
           print('\nDCA performance is measured against cumulative contributions. DCA drawdown is based on a contribution-neutral, time-weighted equity curve.\n\nThese benchmarks are passive references only and do not establish future profitability.')
           PY
       - if: always()

@@ -10,6 +10,7 @@ import argparse
 import csv
 import json
 import sys
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
@@ -28,6 +29,29 @@ INTERVAL = timedelta(hours=4)
 # A single absent 4h candle can defer a scheduled purchase to the next available
 # candle. Longer interruptions cannot be treated as a normal delayed execution.
 MAX_ALLOWED_GAP = timedelta(hours=8)
+
+
+@dataclass(frozen=True)
+class DeploymentBucket:
+    """Aggregate cash available at one instant solely for purchase scheduling."""
+
+    contributed_at: datetime
+    amount: Decimal
+
+
+def deployment_buckets(events: tuple[CashFlowEvent, ...]) -> tuple[DeploymentBucket, ...]:
+    """Group same-instant cash flows without changing their investor-event records."""
+    grouped: dict[datetime, Decimal] = {}
+    for event in sorted(events, key=lambda item: (item.contributed_at, item.kind, item.amount)):
+        grouped[event.contributed_at] = (
+            grouped.get(event.contributed_at, Decimal("0")) + event.amount
+        )
+    return tuple(
+        DeploymentBucket(contributed_at=timestamp, amount=amount)
+        for timestamp, amount in sorted(grouped.items())
+    )
+
+
 WEEKDAYS = {
     name: number
     for number, name in enumerate(
@@ -307,23 +331,21 @@ def _deploy(
     """Deploy each cash flow only after it arrives; DCA splits it over its funding interval."""
     end = candles.iloc[-1]["date"].to_pydatetime().astimezone(UTC) + INTERVAL
     purchases: list[dict[str, Any]] = []
-    for position, event in enumerate(events):
-        next_at = events[position + 1].contributed_at if position + 1 < len(events) else end
+    buckets = deployment_buckets(events)
+    for position, bucket in enumerate(buckets):
+        next_at = buckets[position + 1].contributed_at if position + 1 < len(buckets) else end
+        bucket_event = CashFlowEvent(bucket.contributed_at, bucket.amount, "deployment")
         if method == "immediate":
-            scheduled = [event.contributed_at]
+            scheduled = [bucket.contributed_at]
         else:
-            scheduled = [
-                date
-                for date in _deployment_dates(event.contributed_at, next_at, method, weekly_day)
-                if date >= event.contributed_at
-            ]
+            scheduled = _deployment_dates(bucket.contributed_at, next_at, method, weekly_day)
         if not scheduled:
             continue
-        portion = event.amount / len(scheduled)
+        portion = bucket.amount / len(scheduled)
         amounts = [portion] * (len(scheduled) - 1)
-        amounts.append(event.amount - sum(amounts, Decimal("0")))
+        amounts.append(bucket.amount - sum(amounts, Decimal("0")))
         for scheduled_at, amount in zip(scheduled, amounts, strict=True):
-            purchase = _purchase(candles, event, scheduled_at, amount, plan.fee_ratio)
+            purchase = _purchase(candles, bucket_event, scheduled_at, amount, plan.fee_ratio)
             if purchase is not None:
                 purchases.append(purchase)
     return purchases
