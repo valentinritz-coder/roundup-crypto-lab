@@ -61,9 +61,9 @@ def summary(rows: list[dict[str, int | float | str]], metadata: dict[str, Any]) 
     ]
     for row in rows:
         lines.append(
-            (
-                "| {strategy} | {trades} | {profit_total:.2%} | {profit_total_abs:.8f} | {winrate:.2%} | {max_drawdown_account:.2%} | {profit_factor:.4f} | {expectancy:.8f} |"  # noqa: E501
-            ).format(**row)
+            "| {strategy} | {trades} | {profit_total:.2%} | {profit_total_abs:.8f} | {winrate:.2%} | {max_drawdown_account:.2%} | {profit_factor:.4f} | {expectancy:.8f} |".format(  # noqa: E501
+                **row
+            )
         )
     for title, key, reverse in (
         ("Best profit total", "profit_total", True),
@@ -108,6 +108,7 @@ def main() -> None:
         "starting-balance",
     ):
         parser.add_argument(f"--{option}", required=True)
+    parser.add_argument("--config-digest", required=False)
     args = parser.parse_args()
     parse_timerange(args.timerange)
     if args.timeframe != "4h":
@@ -128,6 +129,8 @@ def main() -> None:
             "starting-balance",
         )
     }
+    if args.config_digest is not None:
+        metadata["config_digest"] = args.config_digest
     metadata["strategies"] = list(STRATEGY_ORDER)
     rows = validate_comparison(args.comparison)
     args.metadata.write_text(json.dumps(metadata, indent=2) + "\n", encoding="utf-8")

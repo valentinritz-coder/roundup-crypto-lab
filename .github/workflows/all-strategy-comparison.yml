@@ -42,7 +42,7 @@ jobs:
           python -m roundup_crypto_lab.breakout_comparison validate-data "$TIMERANGE" user_data/data/kraken |& tee artifacts-data-validation.txt
           python -m freqtrade list-data --config artifacts/pair-config.json --show-timerange |& tee list-data.txt
       - name: Run seven equivalent backtests
-        env: {TIMERANGE: '${{ inputs.timerange }}', TIMEFRAME: '${{ inputs.timeframe }}', PAIR: '${{ inputs.pair }}', CAPITAL_MODE: '${{ inputs.capital_mode }}'}
+        env: {TIMERANGE: '${{ inputs.timerange }}', TIMEFRAME: '${{ inputs.timeframe }}'}
         run: |
           mkdir -p artifacts/results artifacts/logs
           run_backtest() {
@@ -61,7 +61,7 @@ jobs:
           run_backtest RoundupTrendPullbackStrategy trend-pullback
           run_backtest RoundupConfirmedBreakoutStrategy confirmed-breakout
           run_backtest RoundupVolatilitySqueezeStrategy volatility-squeeze
-      - name: Generate and validate recurring active results
+      - name: Generate and validate active results
         env: {TIMERANGE: '${{ inputs.timerange }}', PAIR: '${{ inputs.pair }}', CAPITAL_MODE: '${{ inputs.capital_mode }}'}
         run: |
           for strategy in RoundupBreakoutStrategy RoundupBreakoutTrendStrategy RoundupBreakoutAtrStrategy RoundupBreakoutAtrVolumeStrategy RoundupTrendPullbackStrategy RoundupConfirmedBreakoutStrategy RoundupVolatilitySqueezeStrategy; do
@@ -69,7 +69,6 @@ jobs:
           done
       - name: Validate one-shot native differential
         if: ${{ inputs.capital_mode == 'one_shot_capital' }}
-        env: {PAIR: '${{ inputs.pair }}', TIMERANGE: '${{ inputs.timerange }}'}
         run: |
           for spec in 'RoundupBreakoutStrategy breakout-baseline' 'RoundupBreakoutTrendStrategy breakout-trend' 'RoundupBreakoutAtrStrategy breakout-atr' 'RoundupBreakoutAtrVolumeStrategy breakout-atr-volume' 'RoundupTrendPullbackStrategy trend-pullback' 'RoundupConfirmedBreakoutStrategy confirmed-breakout' 'RoundupVolatilitySqueezeStrategy volatility-squeeze'; do
             set -- $spec
@@ -80,7 +79,8 @@ jobs:
         env: {TIMERANGE: '${{ inputs.timerange }}', TIMEFRAME: '${{ inputs.timeframe }}', PAIR: '${{ inputs.pair }}', CAPITAL_MODE: '${{ inputs.capital_mode }}'}
         run: |
           python -m roundup_crypto_lab.compare_strategies --expected-strategy RoundupBreakoutStrategy --expected-strategy RoundupBreakoutTrendStrategy --expected-strategy RoundupBreakoutAtrStrategy --expected-strategy RoundupBreakoutAtrVolumeStrategy --expected-strategy RoundupTrendPullbackStrategy --expected-strategy RoundupConfirmedBreakoutStrategy --expected-strategy RoundupVolatilitySqueezeStrategy --result RoundupBreakoutStrategy=artifacts/results/breakout-baseline.zip --result RoundupBreakoutTrendStrategy=artifacts/results/breakout-trend.zip --result RoundupBreakoutAtrStrategy=artifacts/results/breakout-atr.zip --result RoundupBreakoutAtrVolumeStrategy=artifacts/results/breakout-atr-volume.zip --result RoundupTrendPullbackStrategy=artifacts/results/trend-pullback.zip --result RoundupConfirmedBreakoutStrategy=artifacts/results/confirmed-breakout.zip --result RoundupVolatilitySqueezeStrategy=artifacts/results/volatility-squeeze.zip --output artifacts/results/all-strategies-comparison.json
-          python -m roundup_crypto_lab.all_strategy_comparison artifacts/results/all-strategies-comparison.json artifacts/results/metadata.json artifacts/results/job-summary.md --timerange "$TIMERANGE" --timeframe "$TIMEFRAME" --commit-sha "$GITHUB_SHA" --python-version "$(python --version)" --freqtrade-version "$(python -m freqtrade --version)" --ccxt-version "$(python -c 'import ccxt; print(ccxt.__version__)')" --run-date-utc "$(date --utc +%Y-%m-%dT%H:%M:%SZ)" --config artifacts/pair-config.json --pairs "$PAIR" --fee "$FEE" --starting-balance "$INITIAL_CAPITAL"
+          CONFIG_DIGEST="$(python -c 'import json; from roundup_crypto_lab.freqtrade_differential import config_digest; print(config_digest(json.load(open("artifacts/pair-config.json"))))')"
+          python -m roundup_crypto_lab.all_strategy_comparison artifacts/results/all-strategies-comparison.json artifacts/results/metadata.json artifacts/results/job-summary.md --timerange "$TIMERANGE" --timeframe "$TIMEFRAME" --commit-sha "$GITHUB_SHA" --python-version "$(python --version)" --freqtrade-version "$(python -m freqtrade --version)" --ccxt-version "$(python -c 'import ccxt; print(ccxt.__version__)')" --run-date-utc "$(date --utc +%Y-%m-%dT%H:%M:%SZ)" --config artifacts/pair-config.json --config-digest "$CONFIG_DIGEST" --pairs "$PAIR" --fee "$FEE" --starting-balance "$INITIAL_CAPITAL"
           differential_arg=()
           if [ "$CAPITAL_MODE" = one_shot_capital ]; then differential_arg=(--one-shot-differential artifacts/results/one-shot-differential.json); fi
           python -m roundup_crypto_lab.active_comparison --native-comparison artifacts/results/all-strategies-comparison.json --metadata artifacts/results/metadata.json --active-result artifacts/results/active-RoundupBreakoutStrategy.json --active-result artifacts/results/active-RoundupBreakoutTrendStrategy.json --active-result artifacts/results/active-RoundupBreakoutAtrStrategy.json --active-result artifacts/results/active-RoundupBreakoutAtrVolumeStrategy.json --active-result artifacts/results/active-RoundupTrendPullbackStrategy.json --active-result artifacts/results/active-RoundupConfirmedBreakoutStrategy.json --active-result artifacts/results/active-RoundupVolatilitySqueezeStrategy.json --output artifacts/results/controlled-comparison.json --summary artifacts/results/job-summary.md "${differential_arg[@]}"
@@ -93,5 +93,5 @@ jobs:
             artifacts/
             artifacts-data-validation.txt
             list-data.txt
-          if-no-files-found: warn
+          if-no-files-found: error
           retention-days: 30
