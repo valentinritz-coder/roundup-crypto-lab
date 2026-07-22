@@ -43,6 +43,9 @@ def strategy_decisions(
     strategy_name: str,
     strategy_dir: Path,
     tradable_balance_ratio: Decimal,
+    pair: str,
+    start: datetime,
+    end: datetime,
 ) -> tuple[list[Candle], dict[datetime, Action | None]]:
     """Call the real strategy and shift completed-row signals to the next open."""
     required = {"date", "open", "high", "low", "close", "volume"}
@@ -51,18 +54,28 @@ def strategy_decisions(
     if not Decimal("0") < tradable_balance_ratio <= Decimal("1"):
         raise ValueError("tradable balance ratio must be in (0, 1]")
     strategy = _load_strategy(strategy_name, strategy_dir)
-    analyzed = strategy.populate_indicators(frame.copy(), {"pair": "BTC/EUR"})
-    analyzed = strategy.populate_entry_trend(analyzed, {"pair": "BTC/EUR"})
-    analyzed = strategy.populate_exit_trend(analyzed, {"pair": "BTC/EUR"})
+    warmup = int(strategy.startup_candle_count)
+    before = frame[frame["date"] < start]
+    if len(before) < warmup:
+        raise ValueError(
+            f"insufficient warm-up history: need {warmup} candles before timerange start"
+        )
+    metadata = {"pair": pair}
+    analyzed = strategy.populate_indicators(frame.copy(), metadata)
+    analyzed = strategy.populate_entry_trend(analyzed, metadata)
+    analyzed = strategy.populate_exit_trend(analyzed, metadata)
     candles = [
         Candle(row.date.to_pydatetime(), Decimal(str(row.open)), Decimal(str(row.close)))
         for row in analyzed.itertuples()
+        if start <= row.date.to_pydatetime().astimezone(UTC) < end
     ]
     decisions: dict[datetime, Action | None] = {}
     # Signal row N is known after N closes.  Associate it with N+1's open.
     for index in range(len(analyzed) - 1):
         next_at = analyzed.iloc[index + 1]["date"].to_pydatetime().astimezone(UTC)
         row = analyzed.iloc[index]
+        if not (start <= next_at < end):
+            continue
         if row.get("exit_long", 0) == 1:
             decisions[next_at] = Action.SELL
         elif row.get("enter_long", 0) == 1:
@@ -80,10 +93,11 @@ def run_freqtrade_strategy(
     *,
     mode: CapitalMode,
     tradable_balance_ratio: Decimal = Decimal("0.8"),
+    pair: str = "BTC/EUR",
 ) -> dict[str, object]:
     """Run a real strategy's causal signals against recurring wallet cash flows."""
     candles, scheduled = strategy_decisions(
-        frame, strategy_name, strategy_dir, tradable_balance_ratio
+        frame, strategy_name, strategy_dir, tradable_balance_ratio, pair, start, end
     )
 
     def decide(wallet: WalletState) -> StrategyDecision:
@@ -98,6 +112,7 @@ def run_freqtrade_strategy(
     result.update(
         {
             "strategy": strategy_name,
+            "pair": pair,
             "investment_plan": {
                 "initial_capital": plan.initial_capital,
                 "monthly_budget": plan.monthly_budget,
@@ -119,6 +134,7 @@ def _json(value: object) -> object:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--data-file", required=True, type=Path)
+    parser.add_argument("--pair", required=True, choices=["BTC/EUR", "ETH/EUR"])
     parser.add_argument("--strategy", required=True)
     parser.add_argument("--strategy-dir", default="user_data/strategies", type=Path)
     parser.add_argument("--timerange", required=True)
@@ -133,9 +149,11 @@ def main() -> None:
     parser.add_argument("--output", required=True, type=Path)
     args = parser.parse_args()
     start, end = parse_timerange(args.timerange)
+    expected_name = f"{args.pair.replace('/', '_')}-4h.feather"
+    if args.data_file.name != expected_name:
+        raise ValueError(f"data file must be {expected_name} for {args.pair}")
     frame = pd.read_feather(args.data_file)
     frame["date"] = pd.to_datetime(frame["date"], utc=True)
-    frame = frame[(frame["date"] >= start) & (frame["date"] < end)].reset_index(drop=True)
     plan = InvestmentPlan(
         args.initial_capital, args.monthly_budget, args.fee, args.contribution_day
     )
@@ -148,6 +166,7 @@ def main() -> None:
         end,
         mode=CapitalMode(args.capital_mode),
         tradable_balance_ratio=Decimal(args.tradable_balance_ratio),
+        pair=args.pair,
     )
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(result, default=_json, indent=2) + "\n", encoding="utf-8")

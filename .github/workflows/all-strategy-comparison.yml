@@ -8,6 +8,7 @@ on:
       initial_capital: {description: Initial investor capital in EUR, required: true, default: "200", type: string}
       monthly_budget: {description: Monthly investor contribution in EUR, required: true, default: "40", type: string}
       contribution_day: {description: Calendar contribution day, required: true, default: "23", type: string}
+      pair: {description: Single spot pair for comparable active results, required: true, default: BTC/EUR, type: choice, options: [BTC/EUR, ETH/EUR]}
 permissions: {contents: read}
 concurrency: {group: kraken-ohlcv-pipeline, cancel-in-progress: false}
 env: {FREQTRADE_VERSION: '2026.6', FREQTRADE_COMMIT: b604e2fd70539f7f73d3c62c16ce0b155bbab319}
@@ -61,11 +62,11 @@ jobs:
           run_backtest RoundupConfirmedBreakoutStrategy confirmed-breakout
           run_backtest RoundupVolatilitySqueezeStrategy volatility-squeeze
       - name: Run auditable active cash-flow artifacts
-        env: {TIMERANGE: '${{ inputs.timerange }}', CAPITAL_MODE: '${{ inputs.capital_mode }}', INITIAL_CAPITAL: '${{ inputs.initial_capital }}', MONTHLY_BUDGET: '${{ inputs.monthly_budget }}', CONTRIBUTION_DAY: '${{ inputs.contribution_day }}'}
+        env: {TIMERANGE: '${{ inputs.timerange }}', CAPITAL_MODE: '${{ inputs.capital_mode }}', INITIAL_CAPITAL: '${{ inputs.initial_capital }}', MONTHLY_BUDGET: '${{ inputs.monthly_budget }}', CONTRIBUTION_DAY: '${{ inputs.contribution_day }}', PAIR: '${{ inputs.pair }}'}
         run: |
           fee="$(python -c 'import json; print(json.load(open("user_data/config.json")).get("fee", "0.004"))')"
           for strategy in RoundupBreakoutStrategy RoundupBreakoutTrendStrategy RoundupBreakoutAtrStrategy RoundupBreakoutAtrVolumeStrategy RoundupTrendPullbackStrategy RoundupConfirmedBreakoutStrategy RoundupVolatilitySqueezeStrategy; do
-            python -m roundup_crypto_lab.freqtrade_active --data-file user_data/data/kraken/BTC_EUR-4h.feather --strategy "$strategy" --timerange "$TIMERANGE" --capital-mode "$CAPITAL_MODE" --initial-capital "$INITIAL_CAPITAL" --monthly-budget "$MONTHLY_BUDGET" --contribution-day "$CONTRIBUTION_DAY" --fee "$fee" --output "artifacts/results/active/$strategy.json"
+            python -m roundup_crypto_lab.freqtrade_active --data-file "user_data/data/kraken/${PAIR//\//_}-4h.feather" --pair "$PAIR" --strategy "$strategy" --timerange "$TIMERANGE" --capital-mode "$CAPITAL_MODE" --initial-capital "$INITIAL_CAPITAL" --monthly-budget "$MONTHLY_BUDGET" --contribution-day "$CONTRIBUTION_DAY" --fee "$fee" --output "artifacts/results/active/$strategy.json"
           done
       - name: Generate, validate, and summarize comparison
         env: {TIMERANGE: '${{ inputs.timerange }}', TIMEFRAME: '${{ inputs.timeframe }}'}

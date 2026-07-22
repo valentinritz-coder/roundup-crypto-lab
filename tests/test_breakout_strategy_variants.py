@@ -134,7 +134,7 @@ def test_real_baseline_strategy_runs_through_recurring_cash_flow_bridge() -> Non
         InvestmentPlan("100", "40", "0", 15),
         "RoundupBreakoutStrategy",
         STRATEGIES_DIR,
-        frame.iloc[0]["date"].to_pydatetime(),
+        frame.iloc[120]["date"].to_pydatetime(),
         (frame.iloc[-1]["date"] + pd.Timedelta(hours=4)).to_pydatetime(),
         mode=CapitalMode.RECURRING_MONTHLY_CONTRIBUTIONS,
     )

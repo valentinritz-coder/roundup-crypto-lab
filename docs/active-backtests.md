@@ -16,6 +16,13 @@ The adapter uses the shared `InvestmentPlan` and `contribution_schedule` exactly
 benchmarks do. Contribution events are processed before the N+1 execution snapshot, recorded
 independently, and never generate a strategy signal.
 
+Before evaluating `[start, end)`, the bridge retains the selected strategy's declared
+`startup_candle_count` candles and runs all three strategy population methods over warm-up plus
+evaluation data. It fails if that history is unavailable. Only post-start execution candles and
+cash flows are emitted. The workflow is deliberately single-pair: select `BTC/EUR` or `ETH/EUR`;
+the pair is passed as strategy metadata and deterministically maps to its matching prepared Feather
+file. It is not a two-pair portfolio comparison.
+
 ## Modes and timestamps
 
 - `one_shot_capital` credits only `initial_capital` at the timerange start, preserving the existing
