@@ -65,7 +65,7 @@ def _offline_ccxt_shim(directory: Path) -> None:
         "import ccxt\nimport ccxt.async_support as accxt\n"
         "m={'BTC/EUR':{'id':'XBTEUR','symbol':'BTC/EUR','base':'BTC','quote':'EUR',"
         "'baseId':'XBT','quoteId':'EUR','type':'spot','spot':True,'swap':False,'future':False,"
-        "'option':False,'active':True,'precision':{'amount':1e-15,'price':0.1},"
+        "'option':False,'active':True,'precision':{'amount':1e-8,'price':0.1},"
         "'limits':{'amount':{'min':1e-8,'max':None},'price':{'min':None,'max':None},"
         "'cost':{'min':1,'max':None}},'maker':.005,'taker':.005,'info':{}}}\n"
         "def f(self,reload=False,params={}):\n"
