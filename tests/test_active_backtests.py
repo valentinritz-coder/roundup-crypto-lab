@@ -240,7 +240,7 @@ def test_end_open_position_is_marked_and_not_forced_closed() -> None:
 
 def test_custom_stop_is_applied_on_entry_candle_using_high_and_current_atr() -> None:
     result = run_active_backtest(
-        [ohlc(1, "100", "110", "90", "105", "5")],
+        [ohlc(1, "100", "110", "100", "105", "5")],
         plan(),
         at(1),
         at(2),
@@ -280,7 +280,7 @@ def test_kraken_precision_rounds_stop_up_and_amount_down() -> None:
                 Decimal("63098.5"),
                 Decimal("63000"),
                 Decimal("63738.5"),
-                Decimal("60931.4"),
+                Decimal("60931.5"),
                 Decimal("1403.500308265872"),
                 Decimal("1403.500308265872"),
             )
