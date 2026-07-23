@@ -1,0 +1,51 @@
+name: Patch PR35 tests
+on:
+  push:
+    branches: [main]
+    paths: [.github/workflows/patch-pr35-tests.yml]
+permissions:
+  contents: write
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/freqtrade-stop-callback-order
+      - name: Patch fixtures and fallback
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          engine = Path('src/roundup_crypto_lab/active_backtests.py')
+          text = engine.read_text()
+          old = '        atr = candle.after_fill_atr if after_fill else candle.atr\n'
+          new = '        atr = (candle.after_fill_atr or candle.atr) if after_fill else candle.atr\n'
+          if old in text:
+              engine.write_text(text.replace(old, new))
+
+          tests = Path('tests/test_active_backtests.py')
+          text = tests.read_text()
+          text = text.replace(
+              '            "atr": Decimal("5"),\n            "candidate_stop_price": Decimal("100"),',
+              '            "atr": Decimal("5"),\n            "after_fill": True,\n            "candidate_stop_price": Decimal("100"),'
+          )
+          tests.write_text(text)
+          PY
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add src/roundup_crypto_lab/active_backtests.py tests/test_active_backtests.py
+          git diff --cached --check
+          git commit -m 'Update stop callback regression fixtures'
+          git push origin HEAD:agent/freqtrade-stop-callback-order
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - name: Remove dispatcher
+        run: |
+          rm .github/workflows/patch-pr35-tests.yml
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add -A
+          git commit -m 'Remove PR35 test patch dispatcher'
+          git push origin HEAD:main
