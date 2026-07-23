@@ -30,7 +30,7 @@ class Action(StrEnum):
 
 @dataclass(frozen=True)
 class Candle:
-    """One OHLC snapshot. ``atr`` was computed from the prior completed candle."""
+    """One OHLC snapshot with the ATR visible to Freqtrade for this candle."""
 
     timestamp: datetime
     open: Decimal
@@ -121,8 +121,9 @@ def run_active_backtest(
 
     A stop has deterministic priority over a signal exit in the same candle. A
     gap below the stop fills at open; otherwise a low touching it fills at the
-    stop. ATR stops are raised from prior-completed-candle ATR only and never
-    lowered. Fees apply to both entry and exit notional.
+    stop. In backtesting, a long custom stop uses the candle high as current_rate,
+    the current analyzed ATR, and is evaluated against that candle's low. Stops
+    can only tighten. Fees apply to both entry and exit notional.
     """
     if start.tzinfo is None or end.tzinfo is None:
         raise ValueError("timerange timestamps must be timezone-aware")
@@ -172,6 +173,32 @@ def run_active_backtest(
         open_trade = None
         stop_price = None
 
+    def update_custom_stop(candle: Candle) -> None:
+        nonlocal stop_price
+        if (
+            not quantity
+            or not lifecycle.use_custom_stoploss
+            or candle.atr is None
+            or open_trade is None
+        ):
+            return
+        current_rate = candle.high or candle.open
+        candidate = current_rate - lifecycle.atr_stop_multiplier * candle.atr  # type: ignore[operator]
+        previous = stop_price
+        stop_price = max(stop_price or candidate, candidate)
+        updates = open_trade.setdefault("stop_updates", [])
+        assert isinstance(updates, list)
+        updates.append(
+            {
+                "timestamp": candle.timestamp.astimezone(UTC).isoformat(),
+                "current_rate": current_rate,
+                "atr": candle.atr,
+                "candidate_stop_price": candidate,
+                "stop_price_before": previous,
+                "stop_price_after": stop_price,
+            }
+        )
+
     for candle in ordered:
         timestamp = candle.timestamp.astimezone(UTC)
         while event_index < len(events) and events[event_index].contributed_at <= timestamp:
@@ -194,10 +221,7 @@ def run_active_backtest(
                 }
             )
             event_index += 1
-        # ATR was exposed only from a completed predecessor candle by the bridge.
-        if quantity and lifecycle.use_custom_stoploss and candle.atr is not None:
-            candidate = candle.open - lifecycle.atr_stop_multiplier * candle.atr  # type: ignore[operator]
-            stop_price = max(stop_price or candidate, candidate)
+        update_custom_stop(candle)
         decision = decide(WalletState(timestamp, cash, quantity, quantity > 0))
         if not isinstance(decision, StrategyDecision):
             raise ValueError("strategy decision provider must return StrategyDecision")
@@ -240,6 +264,7 @@ def run_active_backtest(
                 "entry_fee": fee,
                 "quantity": quantity,
                 "initial_stop_price": stop_price,
+                "stop_updates": [],
                 "exit_timestamp": None,
                 "exit_price": None,
                 "exit_fee": None,
@@ -247,8 +272,9 @@ def run_active_backtest(
                 "exit_tag": None,
             }
             trades.append(open_trade)
-            # Native backtesting can fill a newly opened position's stop from
-            # the entry candle's remaining intrabar range.
+            # Freqtrade calls custom_stoploss after the fill too. The resulting
+            # stop is evaluated against the entry candle's remaining range.
+            update_custom_stop(candle)
             if low <= stop_price:
                 close_trade(
                     candle, candle.open if candle.open <= stop_price else stop_price, "stop_loss"

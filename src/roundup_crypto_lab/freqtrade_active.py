@@ -82,9 +82,10 @@ def strategy_decisions(
     for index, row in enumerate(analyzed.itertuples()):
         timestamp = row.date.to_pydatetime().astimezone(UTC)
         if start <= timestamp < end:
-            # Candle N can use ATR from completed candle N-1, never its own OHLC.
-            prior_atr = analyzed.iloc[index - 1].get("atr_14") if index else None
-            atr = None if pd.isna(prior_atr) else Decimal(str(prior_atr))
+            # Freqtrade custom_stoploss sees the analyzed current candle during
+            # backtesting. Its current_rate is the candle high for a long trade.
+            current_atr = analyzed.iloc[index].get("atr_14")
+            atr = None if pd.isna(current_atr) else Decimal(str(current_atr))
             candles.append(
                 Candle(
                     timestamp,
