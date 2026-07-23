@@ -1,3 +1,4 @@
+# ruff: noqa: E501
 """Instrument the pinned Freqtrade checkout for stoploss lifecycle diagnostics."""
 
 from __future__ import annotations
