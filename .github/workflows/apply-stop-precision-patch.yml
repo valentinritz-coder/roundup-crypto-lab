@@ -1,0 +1,29 @@
+name: Apply stop precision patch once
+on:
+  push:
+    branches: [fix/freqtrade-stop-ratio-and-precision]
+    paths:
+      - tools/apply_stop_precision_patch.py
+      - .github/workflows/apply-stop-precision-patch.yml
+permissions:
+  contents: write
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/freqtrade-stop-ratio-and-precision
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python tools/apply_stop_precision_patch.py
+      - run: |
+          rm tools/apply_stop_precision_patch.py
+          rm .github/workflows/apply-stop-precision-patch.yml
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add -A
+          git diff --cached --check
+          git commit -m "Match Freqtrade stop and Kraken precision semantics"
+          git push origin HEAD:fix/freqtrade-stop-ratio-and-precision
