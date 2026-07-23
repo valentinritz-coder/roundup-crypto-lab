@@ -7,8 +7,8 @@ from roundup_crypto_lab.active_backtests import (
     CapitalMode,
     LifecycleSettings,
     StrategyDecision,
+    run_active_backtest,
 )
-from roundup_crypto_lab.freqtrade_compatible_backtest import run_freqtrade_compatible_backtest
 from roundup_crypto_lab.investment_plan import InvestmentPlan
 
 
@@ -36,7 +36,7 @@ def candle(day: int, open_: str, high: str, low: str, close: str, atr: str) -> C
 
 
 def test_entry_candle_uses_high_and_current_atr_for_custom_stop() -> None:
-    result = run_freqtrade_compatible_backtest(
+    result = run_active_backtest(
         [candle(1, "100", "110", "90", "105", "5")],
         plan(),
         at(1),
@@ -63,7 +63,7 @@ def test_entry_candle_uses_high_and_current_atr_for_custom_stop() -> None:
 
 
 def test_custom_stop_can_lock_profit_and_never_loosen() -> None:
-    result = run_freqtrade_compatible_backtest(
+    result = run_active_backtest(
         [
             candle(1, "100", "105", "100", "104", "10"),
             candle(2, "115", "120", "109", "112", "5"),
