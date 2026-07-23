@@ -7,10 +7,29 @@ strategy modules remain individually discoverable and simple to compare.
 from __future__ import annotations
 
 from datetime import datetime
+import json
+import os
+from pathlib import Path
 
 import talib.abstract as ta
 from freqtrade.strategy import Trade, stoploss_from_absolute
 from pandas import DataFrame
+
+
+def _iso(value: object) -> str | None:
+    """Return a stable timestamp representation for diagnostic traces."""
+    if value is None:
+        return None
+    isoformat = getattr(value, "isoformat", None)
+    return str(isoformat()) if callable(isoformat) else str(value)
+
+
+def _append_stoploss_trace(path: str, record: dict[str, object]) -> None:
+    """Append one JSON record without affecting normal strategy execution."""
+    destination = Path(path)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    with destination.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(record, sort_keys=True, allow_nan=False) + "\n")
 
 
 class _RoundupBreakoutVariantMixin:
@@ -67,12 +86,37 @@ class _RoundupBreakoutVariantMixin:
         dataframe, _ = self.dp.get_analyzed_dataframe(pair, self.timeframe)
         if dataframe.empty:
             return None
-        atr = dataframe.iloc[-1]["atr_14"]
+        row = dataframe.iloc[-1]
+        atr = row["atr_14"]
         if atr is None or atr <= 0:
             return None
-        return stoploss_from_absolute(
-            current_rate - (2.0 * float(atr)),
+
+        absolute_stop = current_rate - (2.0 * float(atr))
+        returned_stop = stoploss_from_absolute(
+            absolute_stop,
             current_rate=current_rate,
             is_short=trade.is_short,
             leverage=trade.leverage,
         )
+
+        trace_path = os.environ.get("ROUNDUP_STOPLOSS_TRACE_PATH")
+        if trace_path:
+            _append_stoploss_trace(
+                trace_path,
+                {
+                    "strategy": self.__class__.__name__,
+                    "pair": pair,
+                    "trade_open_timestamp": _iso(getattr(trade, "open_date_utc", None)),
+                    "trade_open_rate": float(trade.open_rate),
+                    "callback_timestamp": _iso(current_time),
+                    "after_fill": bool(after_fill),
+                    "current_rate": float(current_rate),
+                    "current_profit": float(current_profit),
+                    "analyzed_candle_timestamp": _iso(row.get("date")),
+                    "atr": float(atr),
+                    "absolute_stop_price": float(absolute_stop),
+                    "returned_stoploss": float(returned_stop),
+                },
+            )
+
+        return returned_stop
