@@ -84,11 +84,10 @@ def strategy_decisions(
         if start <= timestamp < end:
             # Backtesting supplies the current candle high as current_rate, while
             # get_analyzed_dataframe() is sliced before this execution row. Therefore
-            # the strategy sees ATR14 from the prior completed candle.
+            # every callback, including after_fill, sees ATR14 from the prior
+            # completed candle.
             visible_atr = analyzed.iloc[index - 1].get("atr_14") if index else None
             atr = None if pd.isna(visible_atr) else Decimal(str(visible_atr))
-            current_atr = getattr(row, "atr_14", None)
-            after_fill_atr = None if pd.isna(current_atr) else Decimal(str(current_atr))
             candles.append(
                 Candle(
                     timestamp,
@@ -97,7 +96,7 @@ def strategy_decisions(
                     Decimal(str(row.high)),
                     Decimal(str(row.low)),
                     atr,
-                    after_fill_atr,
+                    atr,
                 )
             )
     decisions: dict[datetime, Action | None] = {}
