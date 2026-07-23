@@ -82,10 +82,11 @@ def strategy_decisions(
     for index, row in enumerate(analyzed.itertuples()):
         timestamp = row.date.to_pydatetime().astimezone(UTC)
         if start <= timestamp < end:
-            # Freqtrade custom_stoploss sees the analyzed current candle during
-            # backtesting. Its current_rate is the candle high for a long trade.
-            current_atr = analyzed.iloc[index].get("atr_14")
-            atr = None if pd.isna(current_atr) else Decimal(str(current_atr))
+            # Backtesting supplies the current candle high as current_rate, while
+            # get_analyzed_dataframe() is sliced before this execution row. Therefore
+            # the strategy sees ATR14 from the prior completed candle.
+            visible_atr = analyzed.iloc[index - 1].get("atr_14") if index else None
+            atr = None if pd.isna(visible_atr) else Decimal(str(visible_atr))
             candles.append(
                 Candle(
                     timestamp,
@@ -107,7 +108,13 @@ def strategy_decisions(
             decisions[next_at] = Action.SELL
         elif row.get("enter_long", 0) == 1:
             decisions[next_at] = Action.BUY
-    return candles, decisions, _strategy_lifecycle(strategy, config)
+    return candles, decisions, _strategy_lifecycle(strategy, config, pair)
+
+
+_KRAKEN_EXECUTION_PRECISION: dict[str, tuple[Decimal, Decimal]] = {
+    "BTC/EUR": (Decimal("0.1"), Decimal("0.00000001")),
+    "ETH/EUR": (Decimal("0.01"), Decimal("0.00000001")),
+}
 
 
 _REPOSITORY_ATR_STOP_MULTIPLIERS: dict[str, Decimal] = {
@@ -160,7 +167,9 @@ def _repository_atr_stop_multiplier(strategy: Any) -> Decimal | None:
         ) from None
 
 
-def _strategy_lifecycle(strategy: Any, config: dict[str, Any] | None = None) -> LifecycleSettings:
+def _strategy_lifecycle(
+    strategy: Any, config: dict[str, Any] | None = None, pair: str | None = None
+) -> LifecycleSettings:
     """Resolve supported settings using Freqtrade configuration precedence."""
     if getattr(strategy, "can_short", False):
         raise ValueError("active adapter supports spot long-only strategies only")
@@ -176,11 +185,16 @@ def _strategy_lifecycle(strategy: Any, config: dict[str, Any] | None = None) -> 
         if effective.get("use_custom_stoploss", getattr(strategy, "use_custom_stoploss", False))
         else None
     )
+    price_tick, amount_step = _KRAKEN_EXECUTION_PRECISION.get(
+        pair or "", (Decimal("0.00000001"), Decimal("0.00000001"))
+    )
     return LifecycleSettings(
         Decimal(str(effective.get("stoploss", strategy.stoploss))),
         multiplier is not None,
         multiplier,
         bool(effective.get("use_exit_signal", getattr(strategy, "use_exit_signal", True))),
+        price_tick,
+        amount_step,
     )
 
 

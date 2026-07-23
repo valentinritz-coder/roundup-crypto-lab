@@ -6,9 +6,9 @@ The repository-owned adapter adds recurring investor deposits to an auditable, s
 
 1. A contribution is credited to wallet cash immediately before the first eligible candle's execution snapshot. It never changes an existing position quantity or historical stake.
 2. Signals from completed candle **N** execute at candle **N+1** open.
-3. The fixed strategy stop starts at entry price times `1 + stoploss`. During backtesting Freqtrade supplies the candle high as `current_rate` for long custom stops, and the repository strategy computes `high - 2 × ATR14` from the current analyzed candle. The resulting stop is tested against that candle's low and can only tighten.
+3. The fixed strategy stop starts at entry price times `1 + stoploss`. During backtesting Freqtrade supplies the current candle high as `current_rate`, while its sliced analyzed dataframe exposes ATR14 from the prior completed candle. The repository strategy therefore computes `current high - 2 × prior ATR14`; Kraken price precision rounds a long stop upward, and the result can only tighten.
 4. Before a signal exit, a stop is tested against the candle: an open at/below stop fills at open (gap-through); otherwise a low at/below stop fills at the stop. Thus stop-loss has deterministic priority over an overlapping exit signal.
-5. Entry and exit fees use the investment plan fee ratio. Closing a trade resets current deployed capital; cumulative gross deployed stays historical.
+5. Before entry, the requested base amount is truncated to Kraken amount precision; effective stake is then `amount × entry price`. Entry and exit fees use that effective notional. Closing a trade resets current deployed capital; cumulative gross deployed stays historical.
 6. After execution, `mark_price` records the candle close used to value open crypto. An end-open trade is retained with `exit_reason: null` and `open_position_state: open_marked_at_final_close`; it is never silently force-closed.
 
 This is deliberately a narrow OHLC convention, not a simulation of order books, limit-order timeouts, or multi-asset allocation.
@@ -17,7 +17,7 @@ This is deliberately a narrow OHLC convention, not a simulation of order books, 
 
 The differential harness generates a temporary single-pair native configuration from `user_data/config.json`, records a canonical SHA-256 configuration digest, and compares only the lifecycle fields owned by the adapter.
 
-The one-shot proof compares entry and exit timestamps and prices, gross stake, quantity, entry and exit fees, normalized exit reason, final free cash, final crypto value, and final equity. Native exported quantity and its directly derived fees use the documented `1e-8` tolerance. Adapter stake is normalized to Freqtrade's eight-decimal export representation; prices, timestamps, reasons, and the normalized stake remain exact comparisons.
+The one-shot proof compares entry and exit timestamps and prices, gross stake, quantity, entry and exit fees, normalized exit reason, final free cash, final crypto value, and final equity. Native exported quantity and its directly derived fees use the documented `1e-8` tolerance. Adapter stake is normalized to Freqtrade's eight-decimal export representation; prices, timestamps, reasons, and the normalized stake remain exact comparisons. The offline exchange fixture uses the same Kraken amount and price precision as the supported real pair.
 
 Accepted native reasons are `exit_signal`, `close_below_sma20`, `stop_loss`, and `trailing_stop_loss`. The repository exit tag normalizes to `exit_signal`; `trailing_stop_loss` normalizes to `stop_loss`. Every other reason fails validation.
 

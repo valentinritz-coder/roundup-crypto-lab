@@ -11,7 +11,7 @@ from __future__ import annotations
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from decimal import Decimal
+from decimal import ROUND_CEILING, ROUND_FLOOR, Decimal
 from enum import StrEnum
 
 from roundup_crypto_lab.investment_plan import CashFlowEvent, InvestmentPlan, contribution_schedule
@@ -57,6 +57,8 @@ class LifecycleSettings:
     use_custom_stoploss: bool = False
     atr_stop_multiplier: Decimal | None = None
     use_exit_signal: bool = True
+    price_tick: Decimal = Decimal("0.00000001")
+    amount_step: Decimal = Decimal("0.00000001")
 
     def __post_init__(self) -> None:
         if not Decimal("-1") < self.fixed_stoploss < 0:
@@ -65,6 +67,8 @@ class LifecycleSettings:
             self.atr_stop_multiplier is None or self.atr_stop_multiplier <= 0
         ):
             raise ValueError("custom stoploss requires a positive ATR multiplier")
+        if self.price_tick <= 0 or self.amount_step <= 0:
+            raise ValueError("execution precision steps must be positive")
 
 
 @dataclass(frozen=True)
@@ -83,6 +87,14 @@ class WalletState:
 
 
 DecisionProvider = Callable[[WalletState], StrategyDecision]
+
+
+def _round_up(value: Decimal, step: Decimal) -> Decimal:
+    return (value / step).to_integral_value(rounding=ROUND_CEILING) * step
+
+
+def _round_down(value: Decimal, step: Decimal) -> Decimal:
+    return (value / step).to_integral_value(rounding=ROUND_FLOOR) * step
 
 
 def _maximum_drawdown(values: Iterable[Decimal]) -> Decimal:
@@ -122,7 +134,8 @@ def run_active_backtest(
     A stop has deterministic priority over a signal exit in the same candle. A
     gap below the stop fills at open; otherwise a low touching it fills at the
     stop. In backtesting, a long custom stop uses the candle high as current_rate,
-    the current analyzed ATR, and is evaluated against that candle's low. Stops
+    the ATR visible through Freqtrade's sliced analyzed dataframe, and is evaluated
+    against that candle's low. Stops
     can only tighten. Fees apply to both entry and exit notional.
     """
     if start.tzinfo is None or end.tzinfo is None:
@@ -183,7 +196,8 @@ def run_active_backtest(
         ):
             return
         current_rate = candle.high or candle.open
-        candidate = current_rate - lifecycle.atr_stop_multiplier * candle.atr  # type: ignore[operator]
+        raw_candidate = current_rate - lifecycle.atr_stop_multiplier * candle.atr  # type: ignore[operator]
+        candidate = _round_up(raw_candidate, lifecycle.price_tick)
         previous = stop_price
         stop_price = max(stop_price or candidate, candidate)
         updates = open_trade.setdefault("stop_updates", [])
@@ -240,20 +254,24 @@ def run_active_backtest(
                 raise ValueError("maximum one open position")
             if decision.stake is None or decision.stake <= 0:
                 raise ValueError("buy stake must be positive")
-            gross = decision.stake
+            requested_gross = decision.stake
+            quantity = _round_down(requested_gross / candle.open, lifecycle.amount_step)
+            if quantity <= 0:
+                raise ValueError("buy amount rounds to zero at exchange precision")
+            gross = quantity * candle.open
             fee = gross * plan.fee_ratio
             if gross + fee > cash:
                 raise ValueError("buy stake plus fee must not exceed available cash")
-            # Freqtrade's exported stake excludes the entry fee; its filled
-            # amount is therefore stake / entry price while the wallet pays
-            # stake plus fee.
-            quantity = gross / candle.open
+            # Freqtrade truncates the filled base amount to exchange precision,
+            # then derives the effective stake from amount times entry price.
             cash -= gross + fee
             fees += fee
             current_deployed = gross
             cumulative_deployed += gross
             trade_number += 1
-            stop_price = candle.open * (Decimal("1") + lifecycle.fixed_stoploss)
+            stop_price = _round_up(
+                candle.open * (Decimal("1") + lifecycle.fixed_stoploss), lifecycle.price_tick
+            )
             open_trade = {
                 "trade_id": f"trade-{trade_number:06d}",
                 "timestamp": timestamp.isoformat(),

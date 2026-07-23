@@ -245,3 +245,9 @@ def test_unrecognized_custom_stop_is_rejected_without_source_inspection() -> Non
 
     with pytest.raises(ValueError, match="repository ATR custom_stoploss form"):
         _strategy_lifecycle(UnknownCustomStop())
+
+
+def test_kraken_precision_is_attached_to_supported_pair_lifecycle() -> None:
+    lifecycle = _strategy_lifecycle(_LifecycleStub(), pair="BTC/EUR")
+    assert lifecycle.price_tick == Decimal("0.1")
+    assert lifecycle.amount_step == Decimal("0.00000001")
