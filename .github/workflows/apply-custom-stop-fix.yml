@@ -1,0 +1,25 @@
+name: Apply custom-stop behavioral fix
+on:
+  push:
+    branches: [fix/freqtrade-custom-stop-semantics]
+    paths:
+      - scripts/apply_custom_stop_fix.py
+permissions:
+  contents: write
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: {ref: fix/freqtrade-custom-stop-semantics}
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.12'}
+      - run: python scripts/apply_custom_stop_fix.py
+      - run: |
+          rm scripts/apply_custom_stop_fix.py
+          rm .github/workflows/apply-custom-stop-fix.yml
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add src/roundup_crypto_lab/freqtrade_active.py src/roundup_crypto_lab/active_backtests.py tests/test_active_backtests.py docs/active-backtests.md scripts/apply_custom_stop_fix.py .github/workflows/apply-custom-stop-fix.yml
+          git commit -m "Align adapter custom stop with Freqtrade backtesting"
+          git push
