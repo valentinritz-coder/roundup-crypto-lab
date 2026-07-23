@@ -29,7 +29,7 @@ packages = ["src/roundup_crypto_lab"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-ra -x --tb=short"
+addopts = "-ra"
 markers = ["native_differential: runs the offline native Freqtrade and adapter comparison"]
 
 [tool.ruff]
