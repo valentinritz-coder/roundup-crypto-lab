@@ -259,3 +259,37 @@ def test_custom_stop_is_applied_on_entry_candle_using_high_and_current_atr() -> 
     ]
     assert trade["exit_price"] == Decimal("100")
     assert trade["exit_reason"] == "stop_loss"
+
+
+def test_kraken_precision_rounds_stop_up_and_amount_down() -> None:
+    precise = LifecycleSettings(
+        Decimal("-0.12"),
+        True,
+        Decimal("2"),
+        True,
+        Decimal("0.1"),
+        Decimal("0.00000001"),
+    )
+    result = run_active_backtest(
+        [
+            Candle(
+                at(1),
+                Decimal("63098.5"),
+                Decimal("63000"),
+                Decimal("63738.5"),
+                Decimal("60931.4"),
+                Decimal("1403.500308265872"),
+            )
+        ],
+        InvestmentPlan("40", "40", "0.0026", 1),
+        at(1),
+        at(2),
+        lambda state: StrategyDecision(Action.BUY, state.cash * Decimal("0.8")),
+        mode=CapitalMode.ONE_SHOT_CAPITAL,
+        lifecycle=precise,
+    )
+    trade = result["trades"][0]
+    assert trade["quantity"] == Decimal("0.00050714")
+    assert trade["entry_gross_stake"] == Decimal("31.999773290")
+    assert trade["stop_updates"][0]["candidate_stop_price"] == Decimal("60931.5")
+    assert trade["exit_price"] == Decimal("60931.5")
