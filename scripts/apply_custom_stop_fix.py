@@ -178,3 +178,5 @@ replace(
     '''3. The fixed strategy stop starts at entry price times `1 + stoploss`. During backtesting Freqtrade supplies the candle high as `current_rate` for long custom stops, and the repository strategy computes `high - 2 × ATR14` from the current analyzed candle. The resulting stop is tested against that candle's low and can only tighten.
 ''',
 )
+
+# Trigger marker: workflow file now exists on the branch.
