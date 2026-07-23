@@ -6,9 +6,9 @@ strategy modules remain individually discoverable and simple to compare.
 
 from __future__ import annotations
 
-from datetime import datetime
 import json
 import os
+from datetime import datetime
 from pathlib import Path
 
 import talib.abstract as ta
