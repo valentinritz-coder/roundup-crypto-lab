@@ -58,9 +58,9 @@ def test_after_fill_uses_entry_rate_and_visible_atr() -> None:
 
 def test_newly_tightened_stop_fills_at_stop_not_candle_open() -> None:
     start = datetime(2026, 1, 1, tzinfo=UTC)
-    # The entry callback uses the 100 fill and leaves a stop at 94. Because that
-    # survives, the same entry candle also receives a normal callback at its 106 high.
-    # The next candle then tightens from 100 to 106 and crosses that new stop.
+    # The entry callbacks use the first candle ATR 3 and leave a stop at 100.
+    # On the next candle, Freqtrade supplies the current high 110 but the
+    # DataProvider still exposes the previous analyzed ATR 3, tightening to 104.
     candles = [
         Candle(
             start,
@@ -95,9 +95,9 @@ def test_newly_tightened_stop_fills_at_stop_not_candle_open() -> None:
     assert [update["candidate_stop_price"] for update in trade["stop_updates"]] == [
         Decimal("94.0"),
         Decimal("100.0"),
-        Decimal("106.0"),
+        Decimal("104.0"),
     ]
-    assert trade["exit_price"] == Decimal("106.0")
+    assert trade["exit_price"] == Decimal("104.0")
 
 
 def test_entry_candle_after_fill_matches_native_entry_rate_case() -> None:
