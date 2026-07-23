@@ -128,7 +128,7 @@ def test_entry_candle_after_fill_matches_native_entry_rate_case() -> None:
     assert len(trade["stop_updates"]) == 1
 
 
-def test_entry_candle_runs_normal_callback_when_after_fill_stop_survives() -> None:
+def test_entry_candle_normal_callback_cross_fills_at_low() -> None:
     start = datetime(2026, 3, 4, tzinfo=UTC)
     candle = Candle(
         start,
@@ -158,7 +158,35 @@ def test_entry_candle_runs_normal_callback_when_after_fill_stop_survives() -> No
         Decimal("60291.5"),
         Decimal("60931.5"),
     ]
-    assert trade["exit_price"] == Decimal("60931.5")
+    assert trade["exit_price"] == Decimal("60931.4")
+
+
+def test_baseline_entry_candle_second_callback_uses_native_low_fill() -> None:
+    start = datetime(2026, 4, 14, 16, tzinfo=UTC)
+    candle = Candle(
+        start,
+        Decimal("63911.8"),
+        Decimal("63000"),
+        Decimal("64246.4"),
+        Decimal("62660.4"),
+        Decimal("779.0714175160987"),
+        Decimal("779.0714175160987"),
+    )
+    result = run_active_backtest(
+        [candle],
+        _plan(),
+        start,
+        start + timedelta(hours=4),
+        lambda _: StrategyDecision(Action.BUY, Decimal("32")),
+        mode=CapitalMode.ONE_SHOT_CAPITAL,
+        lifecycle=_lifecycle(),
+    )
+    trade = result["trades"][0]
+    assert [update["stop_price_after"] for update in trade["stop_updates"]] == [
+        Decimal("62353.7"),
+        Decimal("62688.3"),
+    ]
+    assert trade["exit_price"] == Decimal("62660.4")
 
 
 def test_entry_candle_fixed_stop_keeps_stop_level_fill_without_custom_update() -> None:
