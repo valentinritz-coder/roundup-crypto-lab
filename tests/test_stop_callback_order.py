@@ -54,6 +54,8 @@ def test_after_fill_uses_current_candle_atr() -> None:
 
 def test_newly_tightened_stop_fills_at_stop_not_candle_open() -> None:
     start = datetime(2026, 1, 1, tzinfo=UTC)
+    # The entry candle stays above its after-fill stop. The next candle then
+    # crosses only the newly tightened stop, which must fill at that stop price.
     candles = [
         Candle(
             start,
