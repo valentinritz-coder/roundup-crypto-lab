@@ -1,0 +1,137 @@
+name: Trace native stoploss callbacks
+
+on:
+  workflow_dispatch:
+    inputs:
+      timerange:
+        description: Strict YYYYMMDD-YYYYMMDD timerange
+        required: true
+        default: "20260124-20260718"
+        type: string
+      pair:
+        description: Supported single pair
+        required: true
+        default: "BTC/EUR"
+        type: choice
+        options: ["BTC/EUR", "ETH/EUR"]
+
+permissions: {contents: read}
+concurrency: {group: kraken-ohlcv-pipeline, cancel-in-progress: false}
+
+env:
+  INITIAL_CAPITAL: "40"
+  FEE: "0.0026"
+  FREQTRADE_VERSION: "2026.6"
+  FREQTRADE_COMMIT: b604e2fd70539f7f73d3c62c16ce0b155bbab319
+
+jobs:
+  trace-native-stoploss:
+    runs-on: ubuntu-latest
+    defaults: {run: {shell: "bash -eo pipefail {0}"}}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Install project and pinned Freqtrade
+        run: |
+          python -m pip install -e '.[dev]'
+          git clone --depth 1 --branch "$FREQTRADE_VERSION" https://github.com/freqtrade/freqtrade.git .freqtrade-src
+          test "$(git -C .freqtrade-src rev-parse HEAD)" = "$FREQTRADE_COMMIT"
+          python -m pip install -r .freqtrade-src/requirements.txt
+          python -m pip install --no-deps -e .freqtrade-src
+          python -m pip install --no-deps -e .freqtrade-src/ft_client
+          python -m pip check
+
+      - name: Restore Kraken cache
+        uses: actions/cache/restore@v4
+        id: restore-kraken
+        with:
+          path: user_data/data/kraken
+          key: 'kraken-ohlcv-v1-trace-${{ github.run_id }}'
+          restore-keys: kraken-ohlcv-v1-
+
+      - name: Validate inputs and prepare config
+        env:
+          TIMERANGE: '${{ inputs.timerange }}'
+          PAIR: '${{ inputs.pair }}'
+        run: |
+          mkdir -p artifacts/traces artifacts/results artifacts/logs
+          python -m roundup_crypto_lab.breakout_comparison validate-timerange "$TIMERANGE"
+          test "$PAIR" = BTC/EUR || test "$PAIR" = ETH/EUR
+          test '${{ steps.restore-kraken.outputs.cache-hit }}' != '' || { echo 'No Kraken cache was restored: run Update Kraken data first.'; exit 1; }
+          python -c 'from pathlib import Path; from roundup_crypto_lab.freqtrade_differential import generate_single_pair_config; import os; generate_single_pair_config(Path("user_data/config.json"), Path("artifacts/pair-config.json"), os.environ["PAIR"], overrides={"dry_run_wallet": int(os.environ["INITIAL_CAPITAL"]), "fee": float(os.environ["FEE"])})'
+          python -m roundup_crypto_lab.breakout_comparison validate-data "$TIMERANGE" user_data/data/kraken
+
+      - name: Trace baseline and ATR strategy callbacks
+        env:
+          TIMERANGE: '${{ inputs.timerange }}'
+        run: |
+          run_trace() {
+            local strategy="$1" slug="$2"
+            export FREQTRADE_STOP_TRACE_PATH="artifacts/traces/$slug.jsonl"
+            rm -f "$FREQTRADE_STOP_TRACE_PATH" artifacts/results/backtest-result-*.zip
+            python -m freqtrade backtesting \
+              --cache none \
+              --config artifacts/pair-config.json \
+              --timeframe 4h \
+              --timerange "$TIMERANGE" \
+              --export trades \
+              --backtest-directory artifacts/results \
+              --strategy "$strategy" |& tee "artifacts/logs/$slug.txt"
+            test -s "$FREQTRADE_STOP_TRACE_PATH" || { echo "No callback trace produced for $strategy"; exit 1; }
+            mv "$(find artifacts/results -maxdepth 1 -type f -name 'backtest-result-*.zip' -printf '%T@ %p\n' | sort -nr | head -n1 | cut -d' ' -f2-)" "artifacts/results/$slug.zip"
+            find artifacts/results -maxdepth 1 -type f -name 'backtest-result-*.meta.json' -delete
+          }
+          run_trace RoundupBreakoutStrategy breakout-baseline
+          run_trace RoundupBreakoutAtrStrategy breakout-atr
+
+      - name: Validate and summarize traces
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          required = {
+              "strategy",
+              "pair",
+              "trade_open_timestamp",
+              "trade_open_rate",
+              "callback_timestamp",
+              "after_fill",
+              "current_rate",
+              "current_profit",
+              "analyzed_candle_timestamp",
+              "atr",
+              "absolute_stop",
+              "relative_stop",
+          }
+          summary = []
+          for path in sorted(Path("artifacts/traces").glob("*.jsonl")):
+              records = [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
+              if not records:
+                  raise SystemExit(f"empty trace: {path}")
+              missing = required - set(records[0])
+              if missing:
+                  raise SystemExit(f"{path} missing fields: {sorted(missing)}")
+              summary.append({
+                  "trace": path.name,
+                  "records": len(records),
+                  "after_fill_records": sum(bool(row["after_fill"]) for row in records),
+                  "first_callback": records[0],
+                  "last_callback": records[-1],
+              })
+          Path("artifacts/traces/summary.json").write_text(json.dumps(summary, indent=2, sort_keys=True))
+          print(json.dumps(summary, indent=2, sort_keys=True))
+          PY
+
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: 'native-stoploss-trace-${{ github.run_id }}'
+          path: artifacts/
+          if-no-files-found: error
+          retention-days: 30
