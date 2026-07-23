@@ -9,6 +9,7 @@ from __future__ import annotations
 from datetime import datetime
 
 import talib.abstract as ta
+from _stoploss_trace import trace_custom_stoploss
 from freqtrade.strategy import Trade, stoploss_from_absolute
 from pandas import DataFrame
 
@@ -43,7 +44,6 @@ class _RoundupBreakoutVariantMixin:
         dataframe["sma_50"] = ta.SMA(dataframe, timeperiod=50)
         dataframe["sma_100"] = ta.SMA(dataframe, timeperiod=100)
         dataframe["atr_14"] = ta.ATR(dataframe, timeperiod=14)
-        # Shift by one candle so the current high cannot define its own breakout.
         dataframe["breakout_high_20"] = dataframe["high"].rolling(20).max().shift(1)
         return dataframe
 
@@ -67,12 +67,31 @@ class _RoundupBreakoutVariantMixin:
         dataframe, _ = self.dp.get_analyzed_dataframe(pair, self.timeframe)
         if dataframe.empty:
             return None
-        atr = dataframe.iloc[-1]["atr_14"]
+        row = dataframe.iloc[-1]
+        atr = row["atr_14"]
         if atr is None or atr <= 0:
             return None
-        return stoploss_from_absolute(
-            current_rate - (2.0 * float(atr)),
+        absolute_stop = current_rate - (2.0 * float(atr))
+        result = stoploss_from_absolute(
+            absolute_stop,
             current_rate=current_rate,
             is_short=trade.is_short,
             leverage=trade.leverage,
         )
+        trace_custom_stoploss(
+            {
+                "strategy": self.__class__.__name__,
+                "pair": pair,
+                "trade_open_timestamp": trade.open_date_utc,
+                "trade_open_rate": trade.open_rate,
+                "callback_timestamp": current_time,
+                "after_fill": after_fill,
+                "current_rate": current_rate,
+                "current_profit": current_profit,
+                "analyzed_candle_timestamp": row.get("date"),
+                "atr": atr,
+                "absolute_stop": absolute_stop,
+                "relative_stop": result,
+            }
+        )
+        return result
