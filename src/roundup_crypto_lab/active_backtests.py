@@ -136,10 +136,10 @@ def run_active_backtest(
 
     A stop has deterministic priority over a signal exit in the same candle. A
     gap below the stop fills at open; otherwise a low touching it fills at the
-    stop. In backtesting, a long custom stop uses the candle high as current_rate,
-    the ATR visible through Freqtrade's sliced analyzed dataframe, and is evaluated
-    against that candle's low. Stops
-    can only tighten. Fees apply to both entry and exit notional.
+    stop. During normal callbacks, a long custom stop uses the candle high as
+    ``current_rate``. The immediate ``after_fill`` callback instead uses the
+    filled entry price, matching Freqtrade. Stops can only tighten. Fees apply
+    to both entry and exit notional.
     """
     if start.tzinfo is None or end.tzinfo is None:
         raise ValueError("timerange timestamps must be timezone-aware")
@@ -199,7 +199,7 @@ def run_active_backtest(
             or open_trade is None
         ):
             return
-        current_rate = candle.high or candle.open
+        current_rate = candle.open if after_fill else (candle.high or candle.open)
         raw_candidate = current_rate - lifecycle.atr_stop_multiplier * atr  # type: ignore[operator]
         candidate = _round_up(raw_candidate, lifecycle.price_tick)
         previous = stop_price
@@ -300,21 +300,14 @@ def run_active_backtest(
                 "exit_tag": None,
             }
             trades.append(open_trade)
-            # Freqtrade calls custom_stoploss after the fill too. If that callback
-            # actually tightens the stop on the entry candle, OHLC backtesting
-            # resolves a crossed stop pessimistically at the candle low. Otherwise
-            # the unchanged fixed stop keeps the normal stop-level fill semantics.
-            previous_stop = stop_price
+            # Freqtrade invokes custom_stoploss immediately after the entry fills,
+            # using the filled entry price as current_rate. If the resulting stop
+            # is crossed within the entry candle, it fills at that stop price.
             update_custom_stop(candle, after_fill=True)
             if low <= stop_price:
-                if stop_price != previous_stop:
-                    close_trade(candle, low, "stop_loss")
-                else:
-                    close_trade(
-                        candle,
-                        candle.open if candle.open <= stop_price else stop_price,
-                        "stop_loss",
-                    )
+                close_trade(
+                    candle, candle.open if candle.open <= stop_price else stop_price, "stop_loss"
+                )
         elif decision.action is not Action.HOLD:
             raise ValueError("unknown strategy action")
         crypto_value = quantity * candle.close

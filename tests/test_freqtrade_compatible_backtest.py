@@ -35,9 +35,9 @@ def candle(day: int, open_: str, high: str, low: str, close: str, atr: str) -> C
     )
 
 
-def test_entry_candle_uses_high_and_current_atr_for_custom_stop() -> None:
+def test_entry_candle_uses_fill_rate_and_visible_atr_for_custom_stop() -> None:
     result = run_active_backtest(
-        [candle(1, "100", "110", "100", "105", "5")],
+        [candle(1, "100", "110", "90", "105", "5")],
         plan(),
         at(1),
         at(2),
@@ -51,15 +51,15 @@ def test_entry_candle_uses_high_and_current_atr_for_custom_stop() -> None:
     assert trade["stop_updates"] == [
         {
             "timestamp": "2026-01-01T00:00:00+00:00",
-            "current_rate": Decimal("110"),
+            "current_rate": Decimal("100"),
             "atr": Decimal("5"),
             "after_fill": True,
-            "candidate_stop_price": Decimal("100"),
+            "candidate_stop_price": Decimal("90"),
             "stop_price_before": Decimal("88"),
-            "stop_price_after": Decimal("100"),
+            "stop_price_after": Decimal("90"),
         }
     ]
-    assert trade["exit_price"] == Decimal("100")
+    assert trade["exit_price"] == Decimal("90")
     assert trade["exit_reason"] == "stop_loss"
 
 
@@ -83,7 +83,7 @@ def test_custom_stop_can_lock_profit_and_never_loosen() -> None:
 
     trade = result["trades"][0]
     assert [update["candidate_stop_price"] for update in trade["stop_updates"]] == [
-        Decimal("85"),
+        Decimal("80"),
         Decimal("110"),
     ]
     assert [update["stop_price_after"] for update in trade["stop_updates"]] == [

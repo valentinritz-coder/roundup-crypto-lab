@@ -238,9 +238,9 @@ def test_end_open_position_is_marked_and_not_forced_closed() -> None:
     assert result["trades"][0]["exit_reason"] is None
 
 
-def test_custom_stop_is_applied_on_entry_candle_using_high_and_current_atr() -> None:
+def test_custom_stop_is_applied_on_entry_candle_using_fill_rate_and_current_atr() -> None:
     result = run_active_backtest(
-        [ohlc(1, "100", "110", "100", "105", "5")],
+        [ohlc(1, "100", "110", "90", "105", "5")],
         plan(),
         at(1),
         at(2),
@@ -252,15 +252,15 @@ def test_custom_stop_is_applied_on_entry_candle_using_high_and_current_atr() -> 
     assert trade["stop_updates"] == [
         {
             "timestamp": "2026-01-01T00:00:00+00:00",
-            "current_rate": Decimal("110"),
+            "current_rate": Decimal("100"),
             "atr": Decimal("5"),
             "after_fill": True,
-            "candidate_stop_price": Decimal("100"),
+            "candidate_stop_price": Decimal("90"),
             "stop_price_before": Decimal("88"),
-            "stop_price_after": Decimal("100"),
+            "stop_price_after": Decimal("90"),
         }
     ]
-    assert trade["exit_price"] == Decimal("100")
+    assert trade["exit_price"] == Decimal("90")
     assert trade["exit_reason"] == "stop_loss"
 
 
@@ -280,7 +280,7 @@ def test_kraken_precision_rounds_stop_up_and_amount_down() -> None:
                 Decimal("63098.5"),
                 Decimal("63000"),
                 Decimal("63738.5"),
-                Decimal("60931.5"),
+                Decimal("60291.5"),
                 Decimal("1403.500308265872"),
                 Decimal("1403.500308265872"),
             )
@@ -295,5 +295,5 @@ def test_kraken_precision_rounds_stop_up_and_amount_down() -> None:
     trade = result["trades"][0]
     assert trade["quantity"] == Decimal("0.00050714")
     assert trade["entry_gross_stake"] == Decimal("31.999773290")
-    assert trade["stop_updates"][0]["candidate_stop_price"] == Decimal("60931.5")
-    assert trade["exit_price"] == Decimal("60931.5")
+    assert trade["stop_updates"][0]["candidate_stop_price"] == Decimal("60291.5")
+    assert trade["exit_price"] == Decimal("60291.5")
