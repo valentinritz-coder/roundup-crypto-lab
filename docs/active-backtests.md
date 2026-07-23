@@ -6,7 +6,7 @@ The repository-owned adapter adds recurring investor deposits to an auditable, s
 
 1. A contribution is credited to wallet cash immediately before the first eligible candle's execution snapshot. It never changes an existing position quantity or historical stake.
 2. Signals from completed candle **N** execute at candle **N+1** open.
-3. The fixed strategy stop starts at entry price times `1 + stoploss`. The supported custom stop is the repository's `open - 2 × ATR14`; ATR is taken only from the prior completed candle and a stop can only tighten.
+3. The fixed strategy stop starts at entry price times `1 + stoploss`. During backtesting Freqtrade supplies the candle high as `current_rate` for long custom stops, and the repository strategy computes `high - 2 × ATR14` from the current analyzed candle. The resulting stop is tested against that candle's low and can only tighten.
 4. Before a signal exit, a stop is tested against the candle: an open at/below stop fills at open (gap-through); otherwise a low at/below stop fills at the stop. Thus stop-loss has deterministic priority over an overlapping exit signal.
 5. Entry and exit fees use the investment plan fee ratio. Closing a trade resets current deployed capital; cumulative gross deployed stays historical.
 6. After execution, `mark_price` records the candle close used to value open crypto. An end-open trade is retained with `exit_reason: null` and `open_position_state: open_marked_at_final_close`; it is never silently force-closed.

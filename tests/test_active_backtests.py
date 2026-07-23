@@ -194,8 +194,13 @@ def test_atr_stop_is_causal_and_never_loosened() -> None:
         ),
         lifecycle=lifecycle(custom=True),
     )
-    # At day 2 ATR raises 88 to 100; day 3's wider ATR cannot lower it.
-    assert result["trades"][0]["exit_price"] == Decimal("100")
+    # Freqtrade uses each candle high as current_rate. Day 2 raises 88 to
+    # 101; day 3's wider ATR cannot lower it.
+    assert result["trades"][0]["exit_price"] == Decimal("101")
+    updates = result["trades"][0]["stop_updates"]
+    assert updates[0]["current_rate"] == Decimal("111")
+    assert updates[0]["atr"] == Decimal("5")
+    assert updates[0]["candidate_stop_price"] == Decimal("101")
 
 
 def test_stop_has_priority_over_same_open_signal_exit() -> None:
@@ -229,3 +234,28 @@ def test_end_open_position_is_marked_and_not_forced_closed() -> None:
     )
     assert result["end_of_range_position"] == "open_marked_at_final_close"
     assert result["trades"][0]["exit_reason"] is None
+
+
+def test_custom_stop_is_applied_on_entry_candle_using_high_and_current_atr() -> None:
+    result = run_active_backtest(
+        [ohlc(1, "100", "110", "90", "105", "5")],
+        plan(),
+        at(1),
+        at(2),
+        lambda state: StrategyDecision(Action.BUY, state.cash),
+        lifecycle=lifecycle(custom=True),
+    )
+    trade = result["trades"][0]
+    assert trade["initial_stop_price"] == Decimal("88")
+    assert trade["stop_updates"] == [
+        {
+            "timestamp": "2026-01-01T00:00:00+00:00",
+            "current_rate": Decimal("110"),
+            "atr": Decimal("5"),
+            "candidate_stop_price": Decimal("100"),
+            "stop_price_before": Decimal("88"),
+            "stop_price_after": Decimal("100"),
+        }
+    ]
+    assert trade["exit_price"] == Decimal("100")
+    assert trade["exit_reason"] == "stop_loss"
