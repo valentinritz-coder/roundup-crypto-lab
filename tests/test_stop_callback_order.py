@@ -27,7 +27,7 @@ def _lifecycle() -> LifecycleSettings:
     )
 
 
-def test_after_fill_uses_current_candle_atr() -> None:
+def test_after_fill_uses_entry_rate_and_visible_atr() -> None:
     start = datetime(2026, 1, 1, tzinfo=UTC)
     candle = Candle(
         start,
@@ -48,14 +48,17 @@ def test_after_fill_uses_current_candle_atr() -> None:
         lifecycle=_lifecycle(),
     )
     trade = result["trades"][0]
-    assert trade["stop_updates"][0]["atr"] == Decimal("5")
-    assert trade["stop_updates"][0]["candidate_stop_price"] == Decimal("100.0")
+    update = trade["stop_updates"][0]
+    assert update["current_rate"] == Decimal("100")
+    assert update["atr"] == Decimal("5")
+    assert update["candidate_stop_price"] == Decimal("90.0")
+    assert trade["exit_price"] == Decimal("90.0")
 
 
 def test_newly_tightened_stop_fills_at_stop_not_candle_open() -> None:
     start = datetime(2026, 1, 1, tzinfo=UTC)
-    # The entry candle stays above its after-fill stop. The next candle then
-    # crosses only the newly tightened stop, which must fill at that stop price.
+    # The entry callback uses the 100 fill and leaves a stop at 94. The next
+    # candle's regular callback uses its 110 high and tightens the stop to 106.
     candles = [
         Candle(
             start,
@@ -87,19 +90,20 @@ def test_newly_tightened_stop_fills_at_stop_not_candle_open() -> None:
         lifecycle=_lifecycle(),
     )
     trade = result["trades"][0]
+    assert trade["stop_updates"][0]["candidate_stop_price"] == Decimal("94.0")
     assert trade["exit_price"] == Decimal("106.0")
 
 
-def test_entry_candle_after_fill_stop_uses_low_when_tightened() -> None:
-    start = datetime(2026, 4, 14, 16, tzinfo=UTC)
+def test_entry_candle_after_fill_matches_native_entry_rate_case() -> None:
+    start = datetime(2026, 5, 11, tzinfo=UTC)
     candle = Candle(
         start,
-        Decimal("63911.8"),
-        Decimal("63000"),
-        Decimal("65000"),
-        Decimal("62660.4"),
-        Decimal("1155.85"),
-        Decimal("1155.85"),
+        Decimal("69850.0"),
+        Decimal("69000"),
+        Decimal("69996.8"),
+        Decimal("68480.8"),
+        Decimal("577.1254911442212"),
+        Decimal("577.1254911442212"),
     )
     result = run_active_backtest(
         [candle],
@@ -111,8 +115,10 @@ def test_entry_candle_after_fill_stop_uses_low_when_tightened() -> None:
         lifecycle=_lifecycle(),
     )
     trade = result["trades"][0]
-    assert trade["stop_updates"][0]["stop_price_after"] == Decimal("62688.3")
-    assert trade["exit_price"] == Decimal("62660.4")
+    update = trade["stop_updates"][0]
+    assert update["current_rate"] == Decimal("69850.0")
+    assert update["stop_price_after"] == Decimal("68695.8")
+    assert trade["exit_price"] == Decimal("68695.8")
 
 
 def test_entry_candle_fixed_stop_keeps_stop_level_fill_without_custom_update() -> None:
