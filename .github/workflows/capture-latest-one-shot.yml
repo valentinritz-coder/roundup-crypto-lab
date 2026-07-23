@@ -1,0 +1,78 @@
+name: Capture latest one-shot verification
+on:
+  push:
+    branches: [main]
+    paths: [.github/workflows/capture-latest-one-shot.yml]
+permissions:
+  actions: read
+  contents: write
+jobs:
+  capture:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - name: Find, wait for, and download latest one-shot run
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p verification/unpacked
+          run_id=""
+          for _ in $(seq 1 120); do
+            runs="$(curl --fail-with-body \
+              --header "Accept: application/vnd.github+json" \
+              --header "Authorization: Bearer $GH_TOKEN" \
+              --header "X-GitHub-Api-Version: 2022-11-28" \
+              "https://api.github.com/repos/${{ github.repository }}/actions/workflows/all-strategy-comparison.yml/runs?event=workflow_dispatch&branch=main&per_page=20")"
+            run_id="$(jq -r '.workflow_runs | map(select(.created_at >= "2026-07-23T06:00:00Z")) | sort_by(.created_at) | last | .id // empty' <<<"$runs")"
+            [ -n "$run_id" ] && break
+            sleep 5
+          done
+          test -n "$run_id"
+          payload=""
+          for _ in $(seq 1 240); do
+            payload="$(curl --fail-with-body \
+              --header "Accept: application/vnd.github+json" \
+              --header "Authorization: Bearer $GH_TOKEN" \
+              --header "X-GitHub-Api-Version: 2022-11-28" \
+              "https://api.github.com/repos/${{ github.repository }}/actions/runs/$run_id")"
+            [ "$(jq -r .status <<<"$payload")" = completed ] && break
+            sleep 10
+          done
+          test "$(jq -r .status <<<"$payload")" = completed
+          jq '{id,status,conclusion,html_url,head_sha,created_at,updated_at}' <<<"$payload" > verification/run.json
+          artifacts="$(curl --fail-with-body \
+            --header "Accept: application/vnd.github+json" \
+            --header "Authorization: Bearer $GH_TOKEN" \
+            --header "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/${{ github.repository }}/actions/runs/$run_id/artifacts")"
+          artifact_id="$(jq -r '.artifacts | sort_by(.created_at) | last | .id // empty' <<<"$artifacts")"
+          test -n "$artifact_id"
+          curl --fail-with-body --location \
+            --header "Accept: application/vnd.github+json" \
+            --header "Authorization: Bearer $GH_TOKEN" \
+            --header "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/${{ github.repository }}/actions/artifacts/$artifact_id/zip" \
+            --output verification/source-artifact.zip
+          unzip -q verification/source-artifact.zip -d verification/unpacked
+      - name: Publish diagnostic files and remove temporary workflows
+        if: always()
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/one-shot-result
+          cp verification/run.json /tmp/one-shot-result/run.json
+          find verification/unpacked -type f \( -name 'one-shot-differential.json' -o -name 'differential-*.json' -o -name 'job-summary.md' -o -name 'controlled-comparison.json' \) -exec cp {} /tmp/one-shot-result/ \;
+          git pull --rebase origin main
+          rm -f .github/workflows/verify-one-shot-after-precision.yml
+          rm -f .github/workflows/capture-latest-one-shot.yml
+          rm -rf verification-results/latest
+          mkdir -p verification-results/latest
+          cp /tmp/one-shot-result/* verification-results/latest/
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add -A
+          git diff --cached --check
+          git commit -m "Publish latest one-shot verification result"
+          git push origin HEAD:main
