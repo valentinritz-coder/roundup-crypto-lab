@@ -300,13 +300,21 @@ def run_active_backtest(
                 "exit_tag": None,
             }
             trades.append(open_trade)
-            # Freqtrade calls custom_stoploss after the fill too. The resulting
-            # stop is evaluated against the entry candle's remaining range.
+            # Freqtrade calls custom_stoploss after the fill too. If that callback
+            # actually tightens the stop on the entry candle, OHLC backtesting
+            # resolves a crossed stop pessimistically at the candle low. Otherwise
+            # the unchanged fixed stop keeps the normal stop-level fill semantics.
+            previous_stop = stop_price
             update_custom_stop(candle, after_fill=True)
             if low <= stop_price:
-                close_trade(
-                    candle, candle.open if candle.open <= stop_price else stop_price, "stop_loss"
-                )
+                if stop_price != previous_stop:
+                    close_trade(candle, low, "stop_loss")
+                else:
+                    close_trade(
+                        candle,
+                        candle.open if candle.open <= stop_price else stop_price,
+                        "stop_loss",
+                    )
         elif decision.action is not Action.HOLD:
             raise ValueError("unknown strategy action")
         crypto_value = quantity * candle.close
