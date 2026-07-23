@@ -65,7 +65,9 @@ jobs:
           cp verification/run.json /tmp/one-shot-result/run.json
           find verification/unpacked -type f \( -name 'one-shot-differential.json' -o -name 'differential-*.json' -o -name 'job-summary.md' -o -name 'controlled-comparison.json' \) -exec cp {} /tmp/one-shot-result/ \;
           rm -rf verification
-          git pull --rebase origin main
+          git fetch origin main
+          git reset --hard origin/main
+          git clean -fd
           rm -f .github/workflows/verify-one-shot-after-precision.yml
           rm -f .github/workflows/capture-latest-one-shot.yml
           rm -rf verification-results/latest
