@@ -191,7 +191,7 @@ def run_active_backtest(
 
     def update_custom_stop(candle: Candle, *, after_fill: bool = False) -> None:
         nonlocal stop_price
-        atr = candle.after_fill_atr if after_fill else candle.atr
+        atr = (candle.after_fill_atr or candle.atr) if after_fill else candle.atr
         if (
             not quantity
             or not lifecycle.use_custom_stoploss
