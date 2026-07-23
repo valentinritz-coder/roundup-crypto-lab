@@ -1,0 +1,130 @@
+name: Native stoploss callback trace
+
+on:
+  workflow_dispatch:
+    inputs:
+      strategy:
+        description: Strategy to trace
+        required: true
+        default: RoundupBreakoutAtrStrategy
+        type: string
+      timerange:
+        description: Freqtrade timerange containing both disputed trades
+        required: true
+        default: 20260124-20260520
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  trace-native-stoploss:
+    runs-on: ubuntu-24.04
+    env:
+      FREQTRADE_VERSION: "2026.6"
+      TRACE_DIR: artifacts/native-stoploss-trace
+      ROUNDUP_STOPLOSS_TRACE_PATH: artifacts/native-stoploss-trace/custom-stoploss-callbacks.jsonl
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install project and pinned Freqtrade
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]"
+          python -m pip install "freqtrade==${FREQTRADE_VERSION}"
+
+      - name: Locate prepared Kraken data
+        id: data
+        shell: bash
+        run: |
+          set -euo pipefail
+          if compgen -G "user_data/data/kraken/BTC_EUR-4h.*" > /dev/null; then
+            echo "datadir=user_data/data" >> "$GITHUB_OUTPUT"
+          elif compgen -G "data/kraken/BTC_EUR-4h.*" > /dev/null; then
+            echo "datadir=data" >> "$GITHUB_OUTPUT"
+          else
+            echo "Prepared BTC/EUR 4h data was not found." >&2
+            echo "Run the Update Kraken data workflow first, then rerun this diagnostic." >&2
+            exit 1
+          fi
+
+      - name: Run native Freqtrade backtest with callback tracing
+        shell: bash
+        env:
+          STRATEGY: ${{ inputs.strategy }}
+          TIMERANGE: ${{ inputs.timerange }}
+          DATADIR: ${{ steps.data.outputs.datadir }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$TRACE_DIR"
+          python -m freqtrade backtesting \
+            --config user_data/config.json \
+            --datadir "$DATADIR" \
+            --strategy-path user_data/strategies \
+            --strategy "$STRATEGY" \
+            --timeframe 4h \
+            --timerange "$TIMERANGE" \
+            --fee 0.0026 \
+            --export trades \
+            --export-directory "$TRACE_DIR"
+
+      - name: Validate and summarize callback trace
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s "$ROUNDUP_STOPLOSS_TRACE_PATH"
+          python - <<'PY'
+          import json
+          from collections import Counter
+          from pathlib import Path
+
+          path = Path("artifacts/native-stoploss-trace/custom-stoploss-callbacks.jsonl")
+          records = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
+          required = {
+              "strategy",
+              "pair",
+              "trade_open_timestamp",
+              "trade_open_rate",
+              "callback_timestamp",
+              "after_fill",
+              "current_rate",
+              "current_profit",
+              "analyzed_candle_timestamp",
+              "atr",
+              "absolute_stop_price",
+              "returned_stoploss",
+          }
+          for index, record in enumerate(records, start=1):
+              missing = required - record.keys()
+              if missing:
+                  raise SystemExit(f"trace record {index} is missing {sorted(missing)}")
+
+          summary = {
+              "record_count": len(records),
+              "after_fill_counts": dict(Counter(str(r["after_fill"]) for r in records)),
+              "trade_count": len({(r["trade_open_timestamp"], r["trade_open_rate"]) for r in records}),
+              "first_record": records[0],
+              "last_record": records[-1],
+          }
+          Path("artifacts/native-stoploss-trace/summary.json").write_text(
+              json.dumps(summary, indent=2, sort_keys=True), encoding="utf-8"
+          )
+          print(json.dumps(summary, indent=2, sort_keys=True))
+          PY
+
+      - name: Upload native callback trace
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-stoploss-callback-trace-${{ github.run_id }}
+          path: artifacts/native-stoploss-trace
+          if-no-files-found: error
+          retention-days: 30
