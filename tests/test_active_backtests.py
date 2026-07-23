@@ -134,13 +134,15 @@ def test_end_exclusive_timerange_rejects_end_candle_and_never_credits_its_cashfl
 
 
 def ohlc(day: int, open_: str, high: str, low: str, close: str, atr: str | None = None) -> Candle:
+    parsed_atr = None if atr is None else Decimal(atr)
     return Candle(
         at(day),
         Decimal(open_),
         Decimal(close),
         Decimal(high),
         Decimal(low),
-        None if atr is None else Decimal(atr),
+        parsed_atr,
+        parsed_atr,
     )
 
 
@@ -252,6 +254,7 @@ def test_custom_stop_is_applied_on_entry_candle_using_high_and_current_atr() -> 
             "timestamp": "2026-01-01T00:00:00+00:00",
             "current_rate": Decimal("110"),
             "atr": Decimal("5"),
+            "after_fill": True,
             "candidate_stop_price": Decimal("100"),
             "stop_price_before": Decimal("88"),
             "stop_price_after": Decimal("100"),
@@ -278,6 +281,7 @@ def test_kraken_precision_rounds_stop_up_and_amount_down() -> None:
                 Decimal("63000"),
                 Decimal("63738.5"),
                 Decimal("60931.4"),
+                Decimal("1403.500308265872"),
                 Decimal("1403.500308265872"),
             )
         ],

@@ -53,6 +53,7 @@ def test_entry_candle_uses_high_and_current_atr_for_custom_stop() -> None:
             "timestamp": "2026-01-01T00:00:00+00:00",
             "current_rate": Decimal("110"),
             "atr": Decimal("5"),
+            "after_fill": True,
             "candidate_stop_price": Decimal("100"),
             "stop_price_before": Decimal("88"),
             "stop_price_after": Decimal("100"),
