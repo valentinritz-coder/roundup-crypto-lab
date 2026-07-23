@@ -37,7 +37,7 @@ def candle(day: int, open_: str, high: str, low: str, close: str, atr: str) -> C
 
 def test_entry_candle_uses_high_and_current_atr_for_custom_stop() -> None:
     result = run_active_backtest(
-        [candle(1, "100", "110", "90", "105", "5")],
+        [candle(1, "100", "110", "100", "105", "5")],
         plan(),
         at(1),
         at(2),
