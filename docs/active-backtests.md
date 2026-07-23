@@ -17,7 +17,7 @@ This is deliberately a narrow OHLC convention, not a simulation of order books, 
 
 The differential harness generates a temporary single-pair native configuration from `user_data/config.json`, records a canonical SHA-256 configuration digest, and compares only the lifecycle fields owned by the adapter.
 
-The one-shot proof compares entry and exit timestamps and prices, gross stake, quantity, entry and exit fees, normalized exit reason, final free cash, final crypto value, and final equity. Native exported quantity and its directly derived fees use the documented `1e-8` tolerance. Adapter stake is normalized to Freqtrade's eight-decimal export representation; prices, timestamps, reasons, and the normalized stake remain exact comparisons.
+The one-shot proof compares entry and exit timestamps and prices, gross stake, quantity, entry and exit fees, normalized exit reason, final free cash, final crypto value, and final equity. Native exported quantity and its directly derived fees use the documented `1e-8` tolerance. Adapter stake is normalized to Freqtrade's eight-decimal export representation; prices, timestamps, reasons, and the normalized stake remain exact comparisons. The offline exchange fixture uses the same Kraken amount and price precision as the supported real pair.
 
 Accepted native reasons are `exit_signal`, `close_below_sma20`, `stop_loss`, and `trailing_stop_loss`. The repository exit tag normalizes to `exit_signal`; `trailing_stop_loss` normalizes to `stop_loss`. Every other reason fails validation.
 
