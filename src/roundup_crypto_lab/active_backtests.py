@@ -139,7 +139,9 @@ def run_active_backtest(
     stop. On the entry candle, Freqtrade first invokes ``custom_stoploss`` with
     ``after_fill=True`` and the entry price as ``current_rate``. If that stop is
     not crossed, it then invokes the normal callback on the same candle using its
-    high. Stops can only tighten. Fees apply to both entry and exit notional.
+    high. A stop crossed after this second callback uses Freqtrade's pessimistic
+    same-candle trailing fill at the candle low. Stops can only tighten. Fees
+    apply to both entry and exit notional.
     """
     if start.tzinfo is None or end.tzinfo is None:
         raise ValueError("timerange timestamps must be timezone-aware")
@@ -313,7 +315,7 @@ def run_active_backtest(
                 previous_stop = stop_price
                 update_custom_stop(candle)
                 if stop_price is not None and stop_price != previous_stop and low <= stop_price:
-                    close_trade(candle, stop_price, "stop_loss")
+                    close_trade(candle, low, "stop_loss")
         elif decision.action is not Action.HOLD:
             raise ValueError("unknown strategy action")
         crypto_value = quantity * candle.close
