@@ -67,7 +67,7 @@ def test_custom_stop_can_lock_profit_and_never_loosen() -> None:
     result = run_active_backtest(
         [
             candle(1, "100", "105", "100", "104", "10"),
-            candle(2, "115", "120", "109", "112", "5"),
+            candle(2, "115", "130", "109", "112", "5"),
         ],
         plan(),
         at(1),
@@ -82,6 +82,8 @@ def test_custom_stop_can_lock_profit_and_never_loosen() -> None:
     )
 
     trade = result["trades"][0]
+    # The second callback receives the current high 130 but still sees the prior
+    # analyzed ATR 10, producing 110 rather than using the current ATR 5.
     assert [update["candidate_stop_price"] for update in trade["stop_updates"]] == [
         Decimal("80"),
         Decimal("85"),
