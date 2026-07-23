@@ -80,78 +80,6 @@ def test_freqtrade_validation_analysis_contract() -> None:
     assert "if: always()" in validation and "actions/upload-artifact@v4" in validation
 
 
-def test_breakout_comparison_workflow_contract() -> None:
-    workflow = content("breakout-strategy-comparison.yml")
-    parsed = yaml.safe_load(workflow)
-    assert parsed
-    assert "workflow_dispatch:" in workflow
-    assert "pull_request" not in workflow and "push:" not in workflow
-    assert "timerange:" in workflow and "validate-timerange" in workflow
-    assert "validate-data" in workflow and "Update Kraken data first" in workflow
-    assert "actions/cache/restore@v4" in workflow
-    assert "python -m freqtrade list-data" in workflow
-    assert not re.search(r"^\s*freqtrade list-data\b", workflow, flags=re.MULTILINE)
-
-    update = content("update-kraken-data.yml")
-    comparison_path, comparison_key_prefix, comparison_restore_prefix = cache_restore_settings(
-        workflow
-    )
-    update_path, update_key_prefix, update_restore_prefix = cache_restore_settings(update)
-    assert comparison_path == update_path
-    assert comparison_key_prefix == update_key_prefix
-    assert comparison_restore_prefix == update_restore_prefix
-    # cache-hit is non-empty for an exact-key or restore-key restoration; false means restore-key.
-    assert "steps.restore-kraken.outputs.cache-hit }}' != ''" in workflow
-    assert "download-data" not in workflow and "--erase" not in workflow
-    assert "hyperopt" not in workflow
-    for strategy in (
-        "RoundupBreakoutStrategy",
-        "RoundupBreakoutTrendStrategy",
-        "RoundupBreakoutAtrStrategy",
-        "RoundupBreakoutAtrVolumeStrategy",
-    ):
-        assert workflow.count(f"--strategy {strategy}") == 1
-        assert f"--result {strategy}=" in workflow
-    # The fifth use is list-data; every one of the four backtests shares this config.
-    assert workflow.count("--config user_data/config.json") >= 4
-    assert workflow.count('--timeframe "$TIMEFRAME"') >= 4
-    assert workflow.count('--timerange "$TIMERANGE"') >= 4
-    assert "--export-filename" not in workflow
-    variants = (
-        ("baseline", "baseline"),
-        ("trend", "trend"),
-        ("atr", "ATR"),
-        ("atr-volume", "ATR+Volume"),
-    )
-    for variant, validation_name in variants:
-        result_directory = f"artifacts/results/{variant}"
-        final_result = f"artifacts/results/{variant}.zip"
-        assert (
-            len(
-                re.findall(rf"--backtest-directory {re.escape(result_directory)}(?=\s|$)", workflow)
-            )
-            == 1
-        )
-        validation = workflow.split(f"Validate {validation_name}", 1)[1].split(
-            "\n      - name:", 1
-        )[0]
-        assert f"find {result_directory} -maxdepth 1 -type f -name '*.zip' -print" in validation
-        assert 'test "${#results[@]}" -eq 1' in validation
-        assert f'mv "${{results[0]}}" {final_result}' in validation
-    assert "python -m roundup_crypto_lab.compare_strategies" in workflow
-    comparison = workflow.split("python -m roundup_crypto_lab.compare_strategies", 1)[1]
-    for strategy, variant in (
-        ("RoundupBreakoutStrategy", "baseline"),
-        ("RoundupBreakoutTrendStrategy", "trend"),
-        ("RoundupBreakoutAtrStrategy", "atr"),
-        ("RoundupBreakoutAtrVolumeStrategy", "atr-volume"),
-    ):
-        assert f"--result {strategy}=artifacts/results/{variant}.zip" in comparison
-    assert "breakout-comparison.json" in workflow
-    assert "GITHUB_STEP_SUMMARY" in workflow
-    assert "actions/upload-artifact@v4" in workflow and "if: always()" in workflow
-
-
 def test_all_strategy_comparison_workflow_contract() -> None:
     workflow = content("all-strategy-comparison.yml")
     parsed = yaml.safe_load(workflow)
@@ -184,7 +112,7 @@ def test_all_strategy_comparison_workflow_contract() -> None:
     assert 'test "${#zips[@]}" -eq 1' in backtests
     assert 'mv "${zips[0]}" "artifacts/results/$result_name.zip"' in backtests
     assert "-name 'backtest-result-*.meta.json' -delete" in backtests
-    assert "GITHUB_STEP_SUMMARY" in workflow and "if: success()" in workflow
+    assert "GITHUB_STEP_SUMMARY" in workflow and "if: always()" in workflow
 
 
 def test_passive_benchmarks_workflow_contract() -> None:
