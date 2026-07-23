@@ -20,7 +20,6 @@ jobs:
         run: |
           set -euo pipefail
           started="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-          echo "started=$started" >> "$GITHUB_OUTPUT"
           curl --fail-with-body \
             --request POST \
             --header "Accept: application/vnd.github+json" \
@@ -83,15 +82,21 @@ jobs:
           path: verification/
           if-no-files-found: error
           retention-days: 30
-      - name: Remove verification dispatcher
+      - name: Publish diagnostics and remove dispatcher
         if: always()
         run: |
           set -euo pipefail
+          mkdir -p /tmp/one-shot-result
+          cp verification/run.json /tmp/one-shot-result/run.json
+          find verification/unpacked -type f \( -name 'one-shot-differential.json' -o -name 'differential-*.json' -o -name 'job-summary.md' -o -name 'controlled-comparison.json' \) -exec cp {} /tmp/one-shot-result/ \;
           git pull --rebase origin main
           rm .github/workflows/verify-one-shot-after-precision.yml
+          rm -rf verification-results/latest
+          mkdir -p verification-results/latest
+          cp /tmp/one-shot-result/* verification-results/latest/
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
           git add -A
           git diff --cached --check
-          git commit -m "Remove one-shot precision verifier"
+          git commit -m "Publish one-shot precision verification"
           git push origin HEAD:main
