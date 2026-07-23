@@ -136,10 +136,10 @@ def run_active_backtest(
 
     A stop has deterministic priority over a signal exit in the same candle. A
     gap below the stop fills at open; otherwise a low touching it fills at the
-    stop. During normal callbacks, a long custom stop uses the candle high as
-    ``current_rate``. The immediate ``after_fill`` callback instead uses the
-    filled entry price, matching Freqtrade. Stops can only tighten. Fees apply
-    to both entry and exit notional.
+    stop. On the entry candle, Freqtrade first invokes ``custom_stoploss`` with
+    ``after_fill=True`` and the entry price as ``current_rate``. If that stop is
+    not crossed, it then invokes the normal callback on the same candle using its
+    high. Stops can only tighten. Fees apply to both entry and exit notional.
     """
     if start.tzinfo is None or end.tzinfo is None:
         raise ValueError("timerange timestamps must be timezone-aware")
@@ -300,14 +300,20 @@ def run_active_backtest(
                 "exit_tag": None,
             }
             trades.append(open_trade)
-            # Freqtrade invokes custom_stoploss immediately after the entry fills,
-            # using the filled entry price as current_rate. If the resulting stop
-            # is crossed within the entry candle, it fills at that stop price.
+            # Native Freqtrade performs two sequential callbacks on an entry candle.
+            # The immediate after-fill callback uses the entry rate. If that stop
+            # survives the candle low, the regular callback then uses the candle high.
             update_custom_stop(candle, after_fill=True)
+            assert stop_price is not None
             if low <= stop_price:
                 close_trade(
                     candle, candle.open if candle.open <= stop_price else stop_price, "stop_loss"
                 )
+            else:
+                previous_stop = stop_price
+                update_custom_stop(candle)
+                if stop_price is not None and stop_price != previous_stop and low <= stop_price:
+                    close_trade(candle, stop_price, "stop_loss")
         elif decision.action is not Action.HOLD:
             raise ValueError("unknown strategy action")
         crypto_value = quantity * candle.close
