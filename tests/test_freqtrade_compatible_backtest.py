@@ -84,9 +84,11 @@ def test_custom_stop_can_lock_profit_and_never_loosen() -> None:
     trade = result["trades"][0]
     assert [update["candidate_stop_price"] for update in trade["stop_updates"]] == [
         Decimal("80"),
+        Decimal("85"),
         Decimal("110"),
     ]
     assert [update["stop_price_after"] for update in trade["stop_updates"]] == [
+        Decimal("88"),
         Decimal("88"),
         Decimal("110"),
     ]
