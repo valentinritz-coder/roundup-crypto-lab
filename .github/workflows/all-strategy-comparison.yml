@@ -65,7 +65,7 @@ jobs:
         env: {TIMERANGE: '${{ inputs.timerange }}', PAIR: '${{ inputs.pair }}', CAPITAL_MODE: '${{ inputs.capital_mode }}'}
         run: |
           for strategy in RoundupBreakoutStrategy RoundupBreakoutTrendStrategy RoundupBreakoutAtrStrategy RoundupBreakoutAtrVolumeStrategy RoundupTrendPullbackStrategy RoundupConfirmedBreakoutStrategy RoundupVolatilitySqueezeStrategy; do
-            python -m roundup_crypto_lab.freqtrade_active --data-file "user_data/data/kraken/${PAIR//\//_}-4h.feather" --pair "$PAIR" --strategy "$strategy" --timerange "$TIMERANGE" --capital-mode "$CAPITAL_MODE" --initial-capital "$INITIAL_CAPITAL" --monthly-budget "$MONTHLY_BUDGET" --contribution-day "$CONTRIBUTION_DAY" --fee "$FEE" --config-file artifacts/pair-config.json --output "artifacts/results/active-$strategy.json"
+            python -m roundup_crypto_lab.freqtrade_active_compatible --data-file "user_data/data/kraken/${PAIR//\//_}-4h.feather" --pair "$PAIR" --strategy "$strategy" --timerange "$TIMERANGE" --capital-mode "$CAPITAL_MODE" --initial-capital "$INITIAL_CAPITAL" --monthly-budget "$MONTHLY_BUDGET" --contribution-day "$CONTRIBUTION_DAY" --fee "$FEE" --config-file artifacts/pair-config.json --output "artifacts/results/active-$strategy.json"
           done
       - name: Diagnose one-shot native differential
         if: ${{ inputs.capital_mode == 'one_shot_capital' }}
