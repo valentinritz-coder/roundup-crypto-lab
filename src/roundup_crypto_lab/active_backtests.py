@@ -1,9 +1,9 @@
 """Causal, single-position spot execution with separate investor cash flows.
 
-At each candle, eligible contributions are credited first.  Stops known before the
-candle are then tested against its OHLC range (open gap first, then intrabar low),
-before an already-scheduled signal exit is allowed at the open.  The close is
-used only for the final mark-to-market snapshot.
+At each candle, eligible contributions are credited first. Stops known before the
+candle are tested against the open for gaps, then custom stops are updated from
+the candle high before the intrabar low is checked. The close is used only for
+the final mark-to-market snapshot.
 """
 
 from __future__ import annotations
@@ -135,13 +135,13 @@ def run_active_backtest(
     """Execute causal decisions; an end-open position remains marked at final close.
 
     A stop has deterministic priority over a signal exit in the same candle. A
-    gap below the stop fills at open; otherwise a low touching it fills at the
-    stop. On the entry candle, Freqtrade first invokes ``custom_stoploss`` with
-    ``after_fill=True`` and the entry price as ``current_rate``. If that stop is
-    not crossed, it then invokes the normal callback on the same candle using its
-    high. A stop crossed after this second callback uses Freqtrade's pessimistic
-    same-candle trailing fill at the candle low. Stops can only tighten. Fees
-    apply to both entry and exit notional.
+    gap below the stop fills at open. Otherwise, Freqtrade updates the normal
+    custom stop from the candle high before testing the candle low. On the entry
+    candle, it first invokes ``custom_stoploss`` with ``after_fill=True`` and the
+    entry price as ``current_rate``. If that stop is not crossed, it invokes the
+    normal callback on the same candle using its high. A stop crossed after this
+    second entry-candle callback uses Freqtrade's pessimistic fill at the candle
+    low. Stops can only tighten. Fees apply to both entry and exit notional.
     """
     if start.tzinfo is None or end.tzinfo is None:
         raise ValueError("timerange timestamps must be timezone-aware")
@@ -246,14 +246,11 @@ def run_active_backtest(
         if not isinstance(decision, StrategyDecision):
             raise ValueError("strategy decision provider must return StrategyDecision")
         low = candle.low or candle.open
-        if quantity and stop_price is not None and (candle.open <= stop_price or low <= stop_price):
-            close_trade(
-                candle, candle.open if candle.open <= stop_price else stop_price, "stop_loss"
-            )
+        if quantity and stop_price is not None and candle.open <= stop_price:
+            close_trade(candle, candle.open, "stop_loss")
         elif quantity:
-            previous_stop = stop_price
             update_custom_stop(candle)
-            if stop_price is not None and stop_price != previous_stop and low <= stop_price:
+            if stop_price is not None and low <= stop_price:
                 close_trade(candle, stop_price, "stop_loss")
             elif decision.action is Action.SELL and lifecycle.use_exit_signal:
                 close_trade(candle, candle.open, "exit_signal", decision.exit_tag)
