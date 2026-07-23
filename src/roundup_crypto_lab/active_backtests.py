@@ -38,6 +38,7 @@ class Candle:
     high: Decimal | None = None
     low: Decimal | None = None
     atr: Decimal | None = None
+    after_fill_atr: Decimal | None = None
 
     def __post_init__(self) -> None:
         if self.timestamp.tzinfo is None:
@@ -47,6 +48,8 @@ class Candle:
             raise ValueError("candle prices must be positive with high >= low")
         if self.atr is not None and self.atr <= 0:
             raise ValueError("ATR must be positive")
+        if self.after_fill_atr is not None and self.after_fill_atr <= 0:
+            raise ValueError("after-fill ATR must be positive")
 
 
 @dataclass(frozen=True)
@@ -186,17 +189,18 @@ def run_active_backtest(
         open_trade = None
         stop_price = None
 
-    def update_custom_stop(candle: Candle) -> None:
+    def update_custom_stop(candle: Candle, *, after_fill: bool = False) -> None:
         nonlocal stop_price
+        atr = candle.after_fill_atr if after_fill else candle.atr
         if (
             not quantity
             or not lifecycle.use_custom_stoploss
-            or candle.atr is None
+            or atr is None
             or open_trade is None
         ):
             return
         current_rate = candle.high or candle.open
-        raw_candidate = current_rate - lifecycle.atr_stop_multiplier * candle.atr  # type: ignore[operator]
+        raw_candidate = current_rate - lifecycle.atr_stop_multiplier * atr  # type: ignore[operator]
         candidate = _round_up(raw_candidate, lifecycle.price_tick)
         previous = stop_price
         stop_price = max(stop_price or candidate, candidate)
@@ -206,7 +210,8 @@ def run_active_backtest(
             {
                 "timestamp": candle.timestamp.astimezone(UTC).isoformat(),
                 "current_rate": current_rate,
-                "atr": candle.atr,
+                "atr": atr,
+                "after_fill": after_fill,
                 "candidate_stop_price": candidate,
                 "stop_price_before": previous,
                 "stop_price_after": stop_price,
@@ -235,7 +240,6 @@ def run_active_backtest(
                 }
             )
             event_index += 1
-        update_custom_stop(candle)
         decision = decide(WalletState(timestamp, cash, quantity, quantity > 0))
         if not isinstance(decision, StrategyDecision):
             raise ValueError("strategy decision provider must return StrategyDecision")
@@ -244,11 +248,17 @@ def run_active_backtest(
             close_trade(
                 candle, candle.open if candle.open <= stop_price else stop_price, "stop_loss"
             )
-        elif decision.action is Action.SELL:
-            if not quantity:
-                raise ValueError("cannot sell without an open position")
-            if lifecycle.use_exit_signal:
+        elif quantity:
+            previous_stop = stop_price
+            update_custom_stop(candle)
+            if stop_price is not None and stop_price != previous_stop and low <= stop_price:
+                close_trade(candle, stop_price, "stop_loss")
+            elif decision.action is Action.SELL and lifecycle.use_exit_signal:
                 close_trade(candle, candle.open, "exit_signal", decision.exit_tag)
+            elif decision.action is Action.BUY:
+                raise ValueError("maximum one open position")
+        elif decision.action is Action.SELL:
+            raise ValueError("cannot sell without an open position")
         elif decision.action is Action.BUY:
             if quantity:
                 raise ValueError("maximum one open position")
@@ -292,7 +302,7 @@ def run_active_backtest(
             trades.append(open_trade)
             # Freqtrade calls custom_stoploss after the fill too. The resulting
             # stop is evaluated against the entry candle's remaining range.
-            update_custom_stop(candle)
+            update_custom_stop(candle, after_fill=True)
             if low <= stop_price:
                 close_trade(
                     candle, candle.open if candle.open <= stop_price else stop_price, "stop_loss"
