@@ -1,0 +1,250 @@
+..........FF.............................................FFs............ [ 42%]
+........................................................................ [ 85%]
+.................F.......                                                [100%]
+=================================== FAILURES ===================================
+____ test_custom_stop_is_applied_on_entry_candle_using_high_and_current_atr ____
+
+    def test_custom_stop_is_applied_on_entry_candle_using_high_and_current_atr() -> None:
+        result = run_active_backtest(
+            [ohlc(1, "100", "110", "90", "105", "5")],
+            plan(),
+            at(1),
+            at(2),
+            lambda state: StrategyDecision(Action.BUY, state.cash),
+            lifecycle=lifecycle(custom=True),
+        )
+        trade = result["trades"][0]
+        assert trade["initial_stop_price"] == Decimal("88")
+>       assert trade["stop_updates"] == [
+            {
+                "timestamp": "2026-01-01T00:00:00+00:00",
+                "current_rate": Decimal("110"),
+                "atr": Decimal("5"),
+                "candidate_stop_price": Decimal("100"),
+                "stop_price_before": Decimal("88"),
+                "stop_price_after": Decimal("100"),
+            }
+        ]
+E       AssertionError: assert [] == [{'atr': Deci...('100'), ...}]
+E         
+E         Right contains one more item: {'atr': Decimal('5'), 'candidate_stop_price': Decimal('100'), 'current_rate': Decimal('110'), 'stop_price_after': Decimal('100'), ...}
+E         
+E         Full diff:
+E         + []
+E         - [
+E         -     {
+E         -         'atr': Decimal('5'),
+E         -         'candidate_stop_price': Decimal('100'),
+E         -         'current_rate': Decimal('110'),
+E         -         'stop_price_after': Decimal('100'),
+E         -         'stop_price_before': Decimal('88'),
+E         -         'timestamp': '2026-01-01T00:00:00+00:00',
+E         -     },
+E         - ]
+
+tests/test_active_backtests.py:250: AssertionError
+_____________ test_kraken_precision_rounds_stop_up_and_amount_down _____________
+
+    def test_kraken_precision_rounds_stop_up_and_amount_down() -> None:
+        precise = LifecycleSettings(
+            Decimal("-0.12"),
+            True,
+            Decimal("2"),
+            True,
+            Decimal("0.1"),
+            Decimal("0.00000001"),
+        )
+        result = run_active_backtest(
+            [
+                Candle(
+                    at(1),
+                    Decimal("63098.5"),
+                    Decimal("63000"),
+                    Decimal("63738.5"),
+                    Decimal("60931.4"),
+                    Decimal("1403.500308265872"),
+                )
+            ],
+            InvestmentPlan("40", "40", "0.0026", 1),
+            at(1),
+            at(2),
+            lambda state: StrategyDecision(Action.BUY, state.cash * Decimal("0.8")),
+            mode=CapitalMode.ONE_SHOT_CAPITAL,
+            lifecycle=precise,
+        )
+        trade = result["trades"][0]
+        assert trade["quantity"] == Decimal("0.00050714")
+        assert trade["entry_gross_stake"] == Decimal("31.999773290")
+>       assert trade["stop_updates"][0]["candidate_stop_price"] == Decimal("60931.5")
+               ^^^^^^^^^^^^^^^^^^^^^^^^
+E       IndexError: list index out of range
+
+tests/test_active_backtests.py:294: IndexError
+_________ test_entry_candle_uses_high_and_current_atr_for_custom_stop __________
+
+    def test_entry_candle_uses_high_and_current_atr_for_custom_stop() -> None:
+        result = run_active_backtest(
+            [candle(1, "100", "110", "90", "105", "5")],
+            plan(),
+            at(1),
+            at(2),
+            lambda state: StrategyDecision(Action.BUY, state.cash),
+            mode=CapitalMode.ONE_SHOT_CAPITAL,
+            lifecycle=lifecycle(),
+        )
+    
+        trade = result["trades"][0]
+        assert trade["initial_stop_price"] == Decimal("88")
+>       assert trade["stop_updates"] == [
+            {
+                "timestamp": "2026-01-01T00:00:00+00:00",
+                "current_rate": Decimal("110"),
+                "atr": Decimal("5"),
+                "candidate_stop_price": Decimal("100"),
+                "stop_price_before": Decimal("88"),
+                "stop_price_after": Decimal("100"),
+            }
+        ]
+E       AssertionError: assert [] == [{'atr': Deci...('100'), ...}]
+E         
+E         Right contains one more item: {'atr': Decimal('5'), 'candidate_stop_price': Decimal('100'), 'current_rate': Decimal('110'), 'stop_price_after': Decimal('100'), ...}
+E         
+E         Full diff:
+E         + []
+E         - [
+E         -     {
+E         -         'atr': Decimal('5'),
+E         -         'candidate_stop_price': Decimal('100'),
+E         -         'current_rate': Decimal('110'),
+E         -         'stop_price_after': Decimal('100'),
+E         -         'stop_price_before': Decimal('88'),
+E         -         'timestamp': '2026-01-01T00:00:00+00:00',
+E         -     },
+E         - ]
+
+tests/test_freqtrade_compatible_backtest.py:51: AssertionError
+______________ test_custom_stop_can_lock_profit_and_never_loosen _______________
+
+    def test_custom_stop_can_lock_profit_and_never_loosen() -> None:
+        result = run_active_backtest(
+            [
+                candle(1, "100", "105", "100", "104", "10"),
+                candle(2, "115", "120", "109", "112", "5"),
+            ],
+            plan(),
+            at(1),
+            at(3),
+            lambda state: (
+                StrategyDecision(Action.BUY, state.cash)
+                if state.timestamp == at(1)
+                else StrategyDecision()
+            ),
+            mode=CapitalMode.ONE_SHOT_CAPITAL,
+            lifecycle=lifecycle(),
+        )
+    
+        trade = result["trades"][0]
+>       assert [update["candidate_stop_price"] for update in trade["stop_updates"]] == [
+            Decimal("85"),
+            Decimal("110"),
+        ]
+E       AssertionError: assert [Decimal('110')] == [Decimal('85'...ecimal('110')]
+E         
+E         At index 0 diff: Decimal('110') != Decimal('85')
+E         Right contains one more item: Decimal('110')
+E         
+E         Full diff:
+E           [
+E         -     Decimal('85'),
+E               Decimal('110'),
+E           ]
+
+tests/test_freqtrade_compatible_backtest.py:84: AssertionError
+___________ test_newly_tightened_stop_fills_at_stop_not_candle_open ____________
+
+    def test_newly_tightened_stop_fills_at_stop_not_candle_open() -> None:
+        start = datetime(2026, 1, 1, tzinfo=UTC)
+        candles = [
+            Candle(
+                start,
+                Decimal("100"),
+                Decimal("105"),
+                Decimal("106"),
+                Decimal("99"),
+                Decimal("3"),
+                Decimal("3"),
+            ),
+            Candle(
+                start + timedelta(hours=4),
+                Decimal("101"),
+                Decimal("103"),
+                Decimal("110"),
+                Decimal("100"),
+                Decimal("2"),
+                Decimal("2"),
+            ),
+        ]
+        calls = iter([StrategyDecision(Action.BUY, Decimal("32")), StrategyDecision()])
+        result = run_active_backtest(
+            candles,
+            _plan(),
+            start,
+            start + timedelta(hours=8),
+            lambda _: next(calls),
+            mode=CapitalMode.ONE_SHOT_CAPITAL,
+            lifecycle=_lifecycle(),
+        )
+        trade = result["trades"][0]
+>       assert trade["exit_price"] == Decimal("106.0")
+E       AssertionError: assert Decimal('100') == Decimal('106.0')
+E        +  where Decimal('106.0') = Decimal('106.0')
+
+tests/test_stop_callback_order.py:88: AssertionError
+=========================== short test summary info ============================
+SKIPPED [1] tests/test_freqtrade_differential.py:173: could not import 'freqtrade': No module named 'freqtrade'
+FAILED tests/test_active_backtests.py::test_custom_stop_is_applied_on_entry_candle_using_high_and_current_atr - AssertionError: assert [] == [{'atr': Deci...('100'), ...}]
+  
+  Right contains one more item: {'atr': Decimal('5'), 'candidate_stop_price': Decimal('100'), 'current_rate': Decimal('110'), 'stop_price_after': Decimal('100'), ...}
+  
+  Full diff:
+  + []
+  - [
+  -     {
+  -         'atr': Decimal('5'),
+  -         'candidate_stop_price': Decimal('100'),
+  -         'current_rate': Decimal('110'),
+  -         'stop_price_after': Decimal('100'),
+  -         'stop_price_before': Decimal('88'),
+  -         'timestamp': '2026-01-01T00:00:00+00:00',
+  -     },
+  - ]
+FAILED tests/test_active_backtests.py::test_kraken_precision_rounds_stop_up_and_amount_down - IndexError: list index out of range
+FAILED tests/test_freqtrade_compatible_backtest.py::test_entry_candle_uses_high_and_current_atr_for_custom_stop - AssertionError: assert [] == [{'atr': Deci...('100'), ...}]
+  
+  Right contains one more item: {'atr': Decimal('5'), 'candidate_stop_price': Decimal('100'), 'current_rate': Decimal('110'), 'stop_price_after': Decimal('100'), ...}
+  
+  Full diff:
+  + []
+  - [
+  -     {
+  -         'atr': Decimal('5'),
+  -         'candidate_stop_price': Decimal('100'),
+  -         'current_rate': Decimal('110'),
+  -         'stop_price_after': Decimal('100'),
+  -         'stop_price_before': Decimal('88'),
+  -         'timestamp': '2026-01-01T00:00:00+00:00',
+  -     },
+  - ]
+FAILED tests/test_freqtrade_compatible_backtest.py::test_custom_stop_can_lock_profit_and_never_loosen - AssertionError: assert [Decimal('110')] == [Decimal('85'...ecimal('110')]
+  
+  At index 0 diff: Decimal('110') != Decimal('85')
+  Right contains one more item: Decimal('110')
+  
+  Full diff:
+    [
+  -     Decimal('85'),
+        Decimal('110'),
+    ]
+FAILED tests/test_stop_callback_order.py::test_newly_tightened_stop_fills_at_stop_not_candle_open - AssertionError: assert Decimal('100') == Decimal('106.0')
+ +  where Decimal('106.0') = Decimal('106.0')
+5 failed, 163 passed, 1 skipped in 2.30s
