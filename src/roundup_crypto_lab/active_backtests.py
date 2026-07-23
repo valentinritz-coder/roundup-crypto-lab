@@ -30,7 +30,7 @@ class Action(StrEnum):
 
 @dataclass(frozen=True)
 class Candle:
-    """One OHLC snapshot with the ATR visible to Freqtrade for this candle."""
+    """One OHLC snapshot with its own calculated ATR."""
 
     timestamp: datetime
     open: Decimal
@@ -136,12 +136,14 @@ def run_active_backtest(
 
     A stop has deterministic priority over a signal exit in the same candle. A
     gap below the stop fills at open. Otherwise, Freqtrade updates the normal
-    custom stop from the candle high before testing the candle low. On the entry
-    candle, it first invokes ``custom_stoploss`` with ``after_fill=True`` and the
-    entry price as ``current_rate``. If that stop is not crossed, it invokes the
-    normal callback on the same candle using its high. A stop crossed after this
-    second entry-candle callback uses Freqtrade's pessimistic fill at the candle
-    low. Stops can only tighten. Fees apply to both entry and exit notional.
+    custom stop from the candle high before testing the candle low. Custom
+    callbacks see the previous analyzed candle's indicators while receiving the
+    current candle's rate. On the entry candle, Freqtrade first invokes
+    ``custom_stoploss`` with ``after_fill=True`` and the entry price as
+    ``current_rate``. If that stop is not crossed, it invokes the normal callback
+    on the same candle using its high. A stop crossed after this second
+    entry-candle callback uses Freqtrade's pessimistic fill at the candle low.
+    Stops can only tighten. Fees apply to both entry and exit notional.
     """
     if start.tzinfo is None or end.tzinfo is None:
         raise ValueError("timerange timestamps must be timezone-aware")
@@ -166,6 +168,7 @@ def run_active_backtest(
     equity_curve: list[dict[str, object]] = []
     open_trade: dict[str, object] | None = None
     stop_price: Decimal | None = None
+    previous_atr: Decimal | None = None
     trade_number = 0
 
     def close_trade(candle: Candle, price: Decimal, reason: str, tag: str | None = None) -> None:
@@ -191,9 +194,11 @@ def run_active_backtest(
         open_trade = None
         stop_price = None
 
-    def update_custom_stop(candle: Candle, *, after_fill: bool = False) -> None:
+    def update_custom_stop(
+        candle: Candle, analyzed_atr: Decimal | None, *, after_fill: bool = False
+    ) -> None:
         nonlocal stop_price
-        atr = (candle.after_fill_atr or candle.atr) if after_fill else candle.atr
+        atr = candle.after_fill_atr if after_fill and candle.after_fill_atr is not None else analyzed_atr
         if (
             not quantity
             or not lifecycle.use_custom_stoploss
@@ -222,6 +227,7 @@ def run_active_backtest(
 
     for candle in ordered:
         timestamp = candle.timestamp.astimezone(UTC)
+        analyzed_atr = previous_atr if previous_atr is not None else candle.atr
         while event_index < len(events) and events[event_index].contributed_at <= timestamp:
             event = events[event_index]
             equity_before = cash + quantity * candle.open
@@ -249,7 +255,7 @@ def run_active_backtest(
         if quantity and stop_price is not None and candle.open <= stop_price:
             close_trade(candle, candle.open, "stop_loss")
         elif quantity:
-            update_custom_stop(candle)
+            update_custom_stop(candle, analyzed_atr)
             if stop_price is not None and low <= stop_price:
                 close_trade(candle, stop_price, "stop_loss")
             elif decision.action is Action.SELL and lifecycle.use_exit_signal:
@@ -271,8 +277,6 @@ def run_active_backtest(
             fee = gross * plan.fee_ratio
             if gross + fee > cash:
                 raise ValueError("buy stake plus fee must not exceed available cash")
-            # Freqtrade truncates the filled base amount to exchange precision,
-            # then derives the effective stake from amount times entry price.
             cash -= gross + fee
             fees += fee
             current_deployed = gross
@@ -299,10 +303,7 @@ def run_active_backtest(
                 "exit_tag": None,
             }
             trades.append(open_trade)
-            # Native Freqtrade performs two sequential callbacks on an entry candle.
-            # The immediate after-fill callback uses the entry rate. If that stop
-            # survives the candle low, the regular callback then uses the candle high.
-            update_custom_stop(candle, after_fill=True)
+            update_custom_stop(candle, analyzed_atr, after_fill=True)
             assert stop_price is not None
             if low <= stop_price:
                 close_trade(
@@ -310,7 +311,7 @@ def run_active_backtest(
                 )
             else:
                 previous_stop = stop_price
-                update_custom_stop(candle)
+                update_custom_stop(candle, analyzed_atr)
                 if stop_price is not None and stop_price != previous_stop and low <= stop_price:
                     close_trade(candle, low, "stop_loss")
         elif decision.action is not Action.HOLD:
@@ -334,6 +335,7 @@ def run_active_backtest(
                 "open_stop_price": stop_price,
             }
         )
+        previous_atr = candle.atr
     if event_index != len(events):
         raise ValueError("timerange candles did not credit every contribution")
     final_equity = equity_curve[-1]["equity"]

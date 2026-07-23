@@ -13,9 +13,10 @@ jobs:
         with: {python-version: '3.12'}
       - name: Run static checks and importer tests
         run: |
+          mkdir -p artifacts
           python -m pip install -e '.[dev]'
           ruff check .
-          pytest
+          pytest > artifacts/pytest.txt 2>&1 || { cat artifacts/pytest.txt; exit 1; }
           python - <<'PY'
           import yaml
           from pathlib import Path
