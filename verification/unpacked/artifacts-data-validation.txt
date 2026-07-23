@@ -1,0 +1,10 @@
+Traceback (most recent call last):
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "/home/runner/work/roundup-crypto-lab/roundup-crypto-lab/src/roundup_crypto_lab/breakout_comparison.py", line 186, in <module>
+    main()
+  File "/home/runner/work/roundup-crypto-lab/roundup-crypto-lab/src/roundup_crypto_lab/breakout_comparison.py", line 172, in main
+    validate_prepared_data(args.timerange, args.data_directory)
+  File "/home/runner/work/roundup-crypto-lab/roundup-crypto-lab/src/roundup_crypto_lab/breakout_comparison.py", line 44, in validate_prepared_data
+    raise ValueError(
+ValueError: Requested 20260123-20260718 is outside prepared Kraken coverage 20260124-20260723. Run Update Kraken data first.
