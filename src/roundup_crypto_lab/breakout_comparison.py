@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any
 
@@ -33,17 +33,32 @@ def parse_timerange(value: str) -> tuple[date, date]:
 
 
 def validate_prepared_data(timerange: str, data_directory: Path) -> None:
-    """Require the immutable cache to cover the requested 4h comparison interval."""
-    requested_start, requested_end = parse_timerange(timerange)
-    from roundup_crypto_lab.kraken_ohlcv import common_timerange, load_and_verify_manifest
+    """Require complete cached candles for the requested end-exclusive interval."""
+    requested_start_date, requested_end_date = parse_timerange(timerange)
+    from roundup_crypto_lab.kraken_ohlcv import (
+        INTERVAL,
+        _strict_timerange,
+        load_and_verify_manifest,
+    )
 
-    load_and_verify_manifest(data_directory)
-    available = common_timerange(data_directory)
-    available_start, available_end = parse_timerange(available)
-    if requested_start < available_start or requested_end > available_end:
+    # Preserve strict manifest, warm-up, and gap validation, but do not require the cache to
+    # contain the latest candle available *now*. During research, only candles read by the
+    # requested end-exclusive timerange matter.
+    strict_timerange = _strict_timerange(data_directory)
+    available_start_date, _ = parse_timerange(strict_timerange)
+    entries = load_and_verify_manifest(data_directory)["datasets"]
+    last_common_candle = min(
+        datetime.fromisoformat(entry["last_timestamp"]) for entry in entries
+    )
+    available_start = datetime.combine(available_start_date, datetime.min.time(), tzinfo=UTC)
+    available_end_exclusive = last_common_candle + INTERVAL
+    requested_start = datetime.combine(requested_start_date, datetime.min.time(), tzinfo=UTC)
+    requested_end = datetime.combine(requested_end_date, datetime.min.time(), tzinfo=UTC)
+    if requested_start < available_start or requested_end > available_end_exclusive:
         raise ValueError(
-            f"Requested {timerange} is outside prepared Kraken coverage {available}. "
-            "Run Update Kraken data first."
+            f"Requested {timerange} is outside prepared Kraken coverage "
+            f"{available_start.isoformat()}..{available_end_exclusive.isoformat()} "
+            "(end exclusive). Run Update Kraken data first."
         )
 
 
