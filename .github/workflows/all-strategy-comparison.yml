@@ -28,7 +28,7 @@ on:
       artifact_name: {required: true, type: string}
 permissions: {contents: read}
 concurrency:
-  group: 'kraken-ohlcv-${{ inputs.scenario_id }}-${{ github.run_id }}'
+  group: 'kraken-ohlcv-pipeline-${{ inputs.scenario_id }}-${{ github.run_id }}'
   cancel-in-progress: false
 env:
   INITIAL_CAPITAL: '${{ inputs.initial_capital }}'
