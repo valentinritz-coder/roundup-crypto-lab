@@ -42,7 +42,8 @@ def validate_native_metadata(metadata: dict[str, Any], experiment: dict[str, Any
         plan.get("initial_capital"), "initial capital"
     ):
         raise ValueError("native starting balance differs")
-    if dec(metadata.get("fee"), "native fee") != dec(settings.get("fee_ratio"), "active fee"):
+    active_fee = dec(settings.get("fee_ratio"), "active fee")
+    if dec(metadata.get("fee"), "native fee") != active_fee:
         raise ValueError("native fee differs")
 
 
@@ -55,12 +56,17 @@ def validate_differential(
         if differential.get(key) != experiment.get(key):
             raise ValueError(f"differential {key} differs")
     rows = _rows(differential.get("strategies"), "differential strategies")
-    if [row.get("strategy") for row in rows if isinstance(row, dict)] != list(STRATEGY_ORDER):
+    names = [row.get("strategy") for row in rows if isinstance(row, dict)]
+    if names != list(STRATEGY_ORDER):
         raise ValueError("differential strategies must be complete and ordered")
+    allowed_statuses = {"passed", "passed_with_warnings"}
     for row_value in rows:
         row = _mapping(row_value, "differential strategy")
-        if row.get("status") != "passed":
+        if row.get("status") not in allowed_statuses:
             raise ValueError("differential strategy did not pass")
+        warning_status = row.get("status") == "passed_with_warnings"
+        if warning_status and not isinstance(row.get("warnings"), list):
+            raise ValueError("warning differential must include warnings")
         count = row.get("trade_count")
         if isinstance(count, bool) or not isinstance(count, int) or count < 0:
             raise ValueError("differential trade count is invalid")
