@@ -23,13 +23,15 @@ def validate_cash_flow_metrics(
     """Require the published block to equal an independent ledger reconstruction."""
     published = _mapping(value, "cash-flow metrics")
     plan = _mapping(experiment.get("investment_plan"), "investment plan")
-    contributions = [
-        {
-            "timestamp": _mapping(row, "contribution schedule row")["contributed_at"],
-            "amount": _mapping(row, "contribution schedule row")["amount"],
-        }
-        for row in schedule
-    ]
+    contributions = []
+    for value_row in schedule:
+        row = _mapping(value_row, "contribution schedule row")
+        contributions.append(
+            {
+                "timestamp": row["contributed_at"],
+                "amount": row["amount"],
+            }
+        )
     snapshots = [
         {
             "timestamp": row["timestamp"],
@@ -51,10 +53,15 @@ def validate_cash_flow_metrics(
     )
     if published != expected:
         raise ValueError("cash-flow metrics differ from ledgers")
-    if dec(published["time_weighted_return"], "time-weighted return") != neutral_return:
+    published_twr = dec(
+        published["time_weighted_return"],
+        "time-weighted return",
+    )
+    if published_twr != neutral_return:
         raise ValueError("legacy neutral return differs from TWR")
-    if (
-        dec(published["max_drawdown_time_weighted"], "time-weighted drawdown")
-        != neutral_drawdown
-    ):
+    published_drawdown = dec(
+        published["max_drawdown_time_weighted"],
+        "time-weighted drawdown",
+    )
+    if published_drawdown != neutral_drawdown:
         raise ValueError("legacy neutral drawdown differs from time-weighted drawdown")
