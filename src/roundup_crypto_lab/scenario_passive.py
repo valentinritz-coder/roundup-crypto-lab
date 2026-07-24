@@ -10,7 +10,11 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
-from roundup_crypto_lab.investment_plan import CashFlowEvent, InvestmentPlan, contribution_schedule
+from roundup_crypto_lab.investment_plan import (
+    CashFlowEvent,
+    InvestmentPlan,
+    contribution_schedule,
+)
 from roundup_crypto_lab.passive_benchmarks import (
     INTERVAL,
     WEEKDAYS,
@@ -23,7 +27,10 @@ from roundup_crypto_lab.passive_benchmarks import (
     load_kraken_candles,
     parse_timerange,
 )
-from roundup_crypto_lab.passive_cash_flow_reporting import enrich_passive_result, write_metrics_csv
+from roundup_crypto_lab.passive_cash_flow_reporting import (
+    enrich_passive_result,
+    write_metrics_csv,
+)
 
 CAPITAL_MODES = frozenset({"one_shot_capital", "recurring_monthly_contributions"})
 
@@ -40,12 +47,16 @@ def _monthly_deploy(
     events: tuple[CashFlowEvent, ...],
     candles: Any,
 ) -> list[dict[str, Any]]:
-    """Split each available funding bucket over monthly dates until the next contribution."""
+    """Split each funding bucket over monthly dates until the next contribution."""
     end = candles.iloc[-1]["date"].to_pydatetime().astimezone(UTC) + INTERVAL
     purchases: list[dict[str, Any]] = []
     buckets = deployment_buckets(events)
     for position, bucket in enumerate(buckets):
-        next_at = buckets[position + 1].contributed_at if position + 1 < len(buckets) else end
+        next_at = (
+            buckets[position + 1].contributed_at
+            if position + 1 < len(buckets)
+            else end
+        )
         scheduled: list[datetime] = []
         current = bucket.contributed_at
         while current < next_at:
@@ -58,7 +69,13 @@ def _monthly_deploy(
         amounts.append(bucket.amount - sum(amounts, Decimal("0")))
         event = CashFlowEvent(bucket.contributed_at, bucket.amount, "deployment")
         for scheduled_at, amount in zip(scheduled, amounts, strict=True):
-            purchase = _purchase(candles, event, scheduled_at, amount, plan.fee_ratio)
+            purchase = _purchase(
+                candles,
+                event,
+                scheduled_at,
+                amount,
+                plan.fee_ratio,
+            )
             if purchase is not None:
                 purchases.append(purchase)
     return purchases
@@ -90,7 +107,7 @@ def run_scenario_passive(
     repository_commit: str,
     weekly_day: str = "monday",
 ) -> dict[str, Any]:
-    """Run passive alternatives with the active scenario's exact funding convention."""
+    """Run passive alternatives with the active scenario's funding convention."""
     start, end = parse_timerange(timerange)
     plan = InvestmentPlan(initial_capital, monthly_budget, fee, contribution_day)
     if weekly_day.lower() not in WEEKDAYS:
@@ -119,11 +136,18 @@ def run_scenario_passive(
         if method == "monthly_dca":
             purchases = _monthly_deploy(plan, events, candles)
         else:
-            purchases = _deploy(plan, events, candles, method, WEEKDAYS[weekly_day.lower()])
+            purchases = _deploy(
+                plan,
+                events,
+                candles,
+                method,
+                WEEKDAYS[weekly_day.lower()],
+            )
         result = _build_result(name, pair, candles, events, purchases)
         result["deployment_method"] = method
         result["contribution_schedule"] = schedule
         benchmarks.append(result)
+    total_contributions = sum((event.amount for event in events), Decimal("0"))
     payload = {
         "metadata": {
             "timerange": timerange,
@@ -135,8 +159,10 @@ def run_scenario_passive(
             "monthly_budget": _number(plan.monthly_budget),
             "contribution_day": plan.contribution_day,
             "contribution_schedule": schedule,
-            "total_contributions": _number(sum((event.amount for event in events), Decimal("0"))),
-            "pair_candle_coverage": {pair: _candle_metadata(candles, timerange)},
+            "total_contributions": _number(total_contributions),
+            "pair_candle_coverage": {
+                pair: _candle_metadata(candles, timerange)
+            },
             "capital_mode": capital_mode,
             "repository_commit": repository_commit,
         },
@@ -147,11 +173,19 @@ def run_scenario_passive(
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--data-dir", type=Path, default=Path("user_data/data/kraken"))
+    parser.add_argument(
+        "--data-dir",
+        type=Path,
+        default=Path("user_data/data/kraken"),
+    )
     parser.add_argument("--pair", required=True)
     parser.add_argument("--timeframe", default="4h")
     parser.add_argument("--timerange", required=True)
-    parser.add_argument("--capital-mode", required=True, choices=sorted(CAPITAL_MODES))
+    parser.add_argument(
+        "--capital-mode",
+        required=True,
+        choices=sorted(CAPITAL_MODES),
+    )
     parser.add_argument("--initial-capital", required=True)
     parser.add_argument("--monthly-budget", required=True)
     parser.add_argument("--fee", required=True)
@@ -175,7 +209,10 @@ def main() -> None:
         weekly_day=args.weekly_day,
     )
     args.output.parent.mkdir(parents=True, exist_ok=True)
-    args.output.write_text(json.dumps(payload, indent=2, allow_nan=False) + "\n", encoding="utf-8")
+    args.output.write_text(
+        json.dumps(payload, indent=2, allow_nan=False) + "\n",
+        encoding="utf-8",
+    )
     if args.output_dir:
         write_metrics_csv(payload, args.output_dir)
 
