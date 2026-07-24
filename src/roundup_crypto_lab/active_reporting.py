@@ -197,5 +197,6 @@ def main() -> None:
     args.summary.write_text(
         render_summary(native, results, experiment, differential), encoding="utf-8"
     )
-    if args.csv:
-        write_cash_flow_csv(results, args.csv)
+    write_cash_flow_csv(
+        results, args.csv or args.output.with_name("cash-flow-metrics.csv")
+    )
