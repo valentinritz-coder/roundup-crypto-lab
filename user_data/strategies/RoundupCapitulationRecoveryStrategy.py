@@ -59,6 +59,8 @@ class RoundupCapitulationRecoveryStrategy(IStrategy):
             & (dataframe["close"] > dataframe["previous_midpoint"])
             & (dataframe["close"] > dataframe["open"])
             & (dataframe["rsi_3"] > dataframe["rsi_3"].shift(1))
+            & (dataframe["close"] < dataframe["ema_20"])
+            & (dataframe["rsi_3"] <= 55)
             & (dataframe["volume"] > 0),
             ["enter_long", "enter_tag"],
         ] = (1, "capitulation_atr_volume_recovery")
