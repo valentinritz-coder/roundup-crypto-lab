@@ -18,14 +18,10 @@ _CUSTOM_EXIT_REASONS = (
 
 
 def register_native_exit_reasons() -> None:
-    """Normalize strategy exits while retaining end-of-window forced exits."""
+    """Normalize every vectorized exit tag introduced by research batch one."""
     differential._NATIVE_REASON_MAP.update(
         dict.fromkeys(_CUSTOM_EXIT_REASONS, "exit_signal")
     )
-    # Freqtrade closes an otherwise open position at the timerange boundary.  The adapter
-    # deliberately keeps it open and marks it at the final close, so this remains a visible
-    # failed/out-of-scope diagnostic rather than crashing before the report is produced.
-    differential._NATIVE_REASON_MAP["force_exit"] = "force_exit"
 
 
 def main() -> None:
