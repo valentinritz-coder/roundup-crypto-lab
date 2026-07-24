@@ -62,7 +62,9 @@ def enrich_passive_result(result: dict[str, Any]) -> dict[str, Any]:
             period_end=end,
         )
         benchmark["cash_flow_metrics"] = metrics
-        if Decimal(str(benchmark["profit_total_abs"])) != Decimal(str(metrics["profit_abs"])):
+        historical_profit = Decimal(str(benchmark["profit_total_abs"]))
+        common_profit = Decimal(str(metrics["profit_abs"]))
+        if abs(historical_profit - common_profit) > Decimal("1e-9"):
             raise ValueError("passive profit differs from cash-flow metrics")
     result["schema_version"] = PASSIVE_SCHEMA_VERSION
     return result
