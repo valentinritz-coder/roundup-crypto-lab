@@ -89,7 +89,7 @@ def test_all_strategy_comparison_workflow_contract() -> None:
     assert "download-data" not in workflow and "hyperopt" not in workflow
     assert "--export-filename" not in workflow and "--cache none" in workflow
     assert "kraken-ohlcv-pipeline" in workflow
-    for name in (
+    strategies = (
         "RoundupBreakoutStrategy",
         "RoundupBreakoutTrendStrategy",
         "RoundupBreakoutAtrStrategy",
@@ -97,9 +97,16 @@ def test_all_strategy_comparison_workflow_contract() -> None:
         "RoundupTrendPullbackStrategy",
         "RoundupConfirmedBreakoutStrategy",
         "RoundupVolatilitySqueezeStrategy",
-    ):
+        "RoundupScientificControlBreakoutStrategy",
+        "RoundupRiskAdjustedMomentumStrategy",
+        "RoundupBullPullbackRsiStrategy",
+        "RoundupDistanceReversionStrategy",
+    )
+    for name in strategies:
         assert workflow.count(f"run_backtest {name}") == 1
         assert f"--result {name}=" in workflow
+        assert f"--active-result artifacts/results/active-{name}.json" in workflow
+    assert "Run eleven equivalent backtests" in workflow
     assert workflow.count("--config artifacts/pair-config.json") >= 1
     backtests = workflow.split("run_backtest()", 1)[1].split(
         "run_backtest RoundupBreakoutStrategy", 1

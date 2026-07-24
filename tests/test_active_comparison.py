@@ -173,7 +173,7 @@ def test_open_trade_must_be_last() -> None:
         validate_active_result(artifact)
 
 
-def test_all_seven_results_are_combined_and_summarized(tmp_path, monkeypatch) -> None:
+def test_all_registered_results_are_combined_and_summarized(tmp_path, monkeypatch) -> None:
     active_paths = []
     for strategy in STRATEGY_ORDER:
         path = tmp_path / f"{strategy}.json"
@@ -233,7 +233,7 @@ def test_all_seven_results_are_combined_and_summarized(tmp_path, monkeypatch) ->
     main()
     controlled = json.loads(output.read_text(encoding="utf-8"))
     assert controlled["schema_version"] == "controlled-comparison/v1"
-    assert len(controlled["active_investor_cash_flow_simulation"]) == 7
+    assert len(controlled["active_investor_cash_flow_simulation"]) == len(STRATEGY_ORDER)
     text = summary.read_text(encoding="utf-8")
     assert "# Native Freqtrade one-shot reference" in text
     assert "# Active investor cash-flow simulation" in text
