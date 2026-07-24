@@ -4,13 +4,8 @@ from pathlib import Path
 
 import pytest
 
+from roundup_crypto_lab import kraken_ohlcv
 from roundup_crypto_lab.breakout_comparison import validate_prepared_data
-from roundup_crypto_lab.kraken_ohlcv import (
-    ImportError as KrakenImportError,
-    common_timerange,
-    regenerate_manifest,
-    write_feather,
-)
 
 
 def _candles(last: datetime, count: int) -> list[tuple]:
@@ -34,8 +29,8 @@ def test_comparison_accepts_cache_missing_only_an_unused_latest_candle(tmp_path:
     last_required = datetime(2026, 7, 22, 20, tzinfo=UTC)
     candles = _candles(last_required, 1600)
     for pair in ("BTC/EUR", "ETH/EUR"):
-        write_feather(candles, tmp_path, pair)
-    regenerate_manifest(
+        kraken_ohlcv.write_feather(candles, tmp_path, pair)
+    kraken_ohlcv.regenerate_manifest(
         tmp_path,
         source_metadata={
             "source_release_tag": "test",
@@ -48,8 +43,10 @@ def test_comparison_accepts_cache_missing_only_an_unused_latest_candle(tmp_path:
     )
 
     # The general cache-freshness contract still notices that the 00:00 candle is missing.
-    with pytest.raises(KrakenImportError, match="recent closed 4h candle"):
-        common_timerange(tmp_path, now=datetime(2026, 7, 23, 4, 30, tzinfo=UTC))
+    with pytest.raises(kraken_ohlcv.ImportError, match="recent closed 4h candle"):
+        kraken_ohlcv.common_timerange(
+            tmp_path, now=datetime(2026, 7, 23, 4, 30, tzinfo=UTC)
+        )
 
     # The comparison does not need that candle because its end is exclusive.
     validate_prepared_data("20260125-20260723", tmp_path)
