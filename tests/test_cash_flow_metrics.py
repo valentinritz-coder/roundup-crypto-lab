@@ -4,7 +4,12 @@ from decimal import Decimal
 
 import pytest
 
-from roundup_crypto_lab.active_backtests import Candle, CapitalMode, run_active_backtest
+from roundup_crypto_lab.active_backtests import (
+    Candle,
+    CapitalMode,
+    StrategyDecision,
+    run_active_backtest,
+)
 from roundup_crypto_lab.active_builder import build_active_result
 from roundup_crypto_lab.active_result_validation import validate_active_result
 from roundup_crypto_lab.cash_flow_metrics import build_cash_flow_metrics, dated_irr
@@ -20,12 +25,7 @@ def contribution(timestamp: datetime, amount: str) -> dict[str, object]:
 
 
 def snapshot(
-    timestamp: datetime,
-    *,
-    equity: str,
-    cash: str,
-    asset: str,
-    share: str,
+    timestamp: datetime, *, equity: str, cash: str, asset: str, share: str
 ) -> dict[str, object]:
     return {
         "timestamp": timestamp,
@@ -56,7 +56,10 @@ def metrics(
 
 def test_all_cash_contributions_have_zero_skill_and_risk_metrics() -> None:
     result = metrics(
-        [contribution(START, "100"), contribution(datetime(2026, 2, 1, tzinfo=UTC), "40")],
+        [
+            contribution(START, "100"),
+            contribution(datetime(2026, 2, 1, tzinfo=UTC), "40"),
+        ],
         [
             snapshot(START, equity="100", cash="100", asset="0", share="1"),
             snapshot(
@@ -127,7 +130,7 @@ def test_constant_price_fees_are_losses_and_terminal_exit_fee_is_explicit() -> N
     assert result["profit_abs"] == "-1"
     assert result["time_weighted_return"] == "-0.01"
     assert result["terminal_liquidation_value"] == "98.01"
-    assert Decimal(result["money_weighted_return"]) < Decimal("-0.01")
+    assert Decimal(str(result["money_weighted_return"])) < Decimal("-0.01")
 
 
 def test_contribution_does_not_change_twr_or_time_weighted_drawdown() -> None:
@@ -152,7 +155,10 @@ def test_contribution_does_not_change_twr_or_time_weighted_drawdown() -> None:
         ],
     )
     with_midway = metrics(
-        [contribution(START, "100"), contribution(datetime(2026, 2, 1, tzinfo=UTC), "40")],
+        [
+            contribution(START, "100"),
+            contribution(datetime(2026, 2, 1, tzinfo=UTC), "40"),
+        ],
         [
             snapshot(START, equity="100", cash="0", asset="100", share="1"),
             snapshot(
@@ -172,11 +178,12 @@ def test_contribution_does_not_change_twr_or_time_weighted_drawdown() -> None:
         ],
     )
 
-    assert with_midway["time_weighted_return"] == without_midway["time_weighted_return"]
-    assert (
-        with_midway["max_drawdown_time_weighted"]
-        == without_midway["max_drawdown_time_weighted"]
-    )
+    assert with_midway["time_weighted_return"] == without_midway[
+        "time_weighted_return"
+    ]
+    assert with_midway["max_drawdown_time_weighted"] == without_midway[
+        "max_drawdown_time_weighted"
+    ]
     assert with_midway["max_drawdown_raw_portfolio"] != without_midway[
         "max_drawdown_raw_portfolio"
     ]
@@ -202,7 +209,7 @@ def test_xirr_known_answer_and_irregular_dates() -> None:
     value, status = dated_irr([(START, Decimal("-100")), (one_year, Decimal("110"))])
     assert status == "converged"
     assert value is not None
-    assert value == pytest.approx(Decimal("0.10"), abs=Decimal("1e-10"))
+    assert abs(value - Decimal("0.10")) < Decimal("1e-10")
 
     irregular, irregular_status = dated_irr(
         [
@@ -226,7 +233,7 @@ def test_active_all_cash_artifact_exposes_and_validates_common_schema() -> None:
         InvestmentPlan("100", "40", "0", 1),
         START,
         END,
-        lambda wallet: None,
+        lambda wallet: StrategyDecision(),
         mode=CapitalMode.RECURRING_MONTHLY_CONTRIBUTIONS,
     )
     raw["execution_scope"] = {
@@ -259,7 +266,7 @@ def test_active_all_cash_artifact_exposes_and_validates_common_schema() -> None:
     assert artifact["cash_flow_metrics"]["money_weighted_return"] == "0"
 
 
-def test_passive_enrichment_uses_same_schema_and_serializes_without_nonfinite_values() -> None:
+def test_passive_enrichment_uses_common_schema_and_no_nonfinite_json() -> None:
     result = {
         "metadata": {
             "timerange": "20260101-20260102",
@@ -298,8 +305,8 @@ def test_passive_enrichment_uses_same_schema_and_serializes_without_nonfinite_va
     }
 
     enriched = enrich_passive_result(result)
-    metrics_block = enriched["benchmarks"][0]["cash_flow_metrics"]
+    block = enriched["benchmarks"][0]["cash_flow_metrics"]
     assert enriched["schema_version"] == "passive-benchmarks/v2"
-    assert metrics_block["schema_version"] == "cash-flow-metrics/v1"
-    assert metrics_block["capital_utilization_ratio"] == "1"
+    assert block["schema_version"] == "cash-flow-metrics/v1"
+    assert block["capital_utilization_ratio"] == "1"
     json.dumps(enriched, allow_nan=False)
