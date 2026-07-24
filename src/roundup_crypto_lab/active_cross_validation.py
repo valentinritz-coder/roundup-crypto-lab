@@ -57,10 +57,13 @@ def validate_differential(
     rows = _rows(differential.get("strategies"), "differential strategies")
     if [row.get("strategy") for row in rows if isinstance(row, dict)] != list(STRATEGY_ORDER):
         raise ValueError("differential strategies must be complete and ordered")
+    allowed_statuses = {"passed", "passed_with_warnings"}
     for row_value in rows:
         row = _mapping(row_value, "differential strategy")
-        if row.get("status") != "passed":
+        if row.get("status") not in allowed_statuses:
             raise ValueError("differential strategy did not pass")
+        if row.get("status") == "passed_with_warnings" and not isinstance(row.get("warnings"), list):
+            raise ValueError("warning differential must include warnings")
         count = row.get("trade_count")
         if isinstance(count, bool) or not isinstance(count, int) or count < 0:
             raise ValueError("differential trade count is invalid")
