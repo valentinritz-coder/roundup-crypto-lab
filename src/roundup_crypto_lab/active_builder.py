@@ -50,14 +50,20 @@ def build_active_result(
     )
 
     plan = _mapping(result.get("investment_plan"), "investment plan")
-    schedule = _rows(result.get("contribution_schedule"), "contribution schedule", nonempty=True)
-    metric_contributions = [
-        {
-            "timestamp": _mapping(row, "contribution schedule row")["contributed_at"],
-            "amount": _mapping(row, "contribution schedule row")["amount"],
-        }
-        for row in schedule
-    ]
+    schedule = _rows(
+        result.get("contribution_schedule"),
+        "contribution schedule",
+        nonempty=True,
+    )
+    metric_contributions = []
+    for value in schedule:
+        row = _mapping(value, "contribution schedule row")
+        metric_contributions.append(
+            {
+                "timestamp": row["contributed_at"],
+                "amount": row["amount"],
+            }
+        )
     metric_snapshots = [
         {
             "timestamp": row["timestamp"],
