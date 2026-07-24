@@ -134,8 +134,8 @@ def render_markdown(summary: dict[str, object]) -> str:
     ]
     for row in summary["scenarios"]:
         lines.append(
-            "| {scenario_id} | {pair} | {timerange} | {regime_label} | "
-            "{conclusion} |".format(**row)
+            f"| {row['scenario_id']} | {row['pair']} | {row['timerange']} | "
+            f"{row['regime_label']} | {row['conclusion']} |"
         )
     return "\n".join(lines) + "\n"
 
