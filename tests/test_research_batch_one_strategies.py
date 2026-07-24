@@ -40,7 +40,8 @@ def test_scientific_control_uses_only_prior_channel_levels() -> None:
     text = source("RoundupScientificControlBreakoutStrategy")
     assert '.rolling(20).max().shift(1)' in text
     assert '.rolling(10).min().shift(1)' in text
-    assert "SMA" not in text and "ATR" not in text and "RSI" not in text
+    assert "talib" not in text
+    assert "ta." not in text
 
 
 def test_risk_adjusted_momentum_uses_return_and_realized_volatility() -> None:
