@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from roundup_crypto_lab.active_common import SCHEMA_VERSION, _mapping, _rows, identity
+from roundup_crypto_lab.cash_flow_metrics import build_cash_flow_metrics
 from roundup_crypto_lab.passive_benchmarks import parse_timerange
 
 
@@ -47,6 +48,36 @@ def build_active_result(
         if recurring
         else ["One-shot equivalence is limited to the validated differential lifecycle scope."]
     )
+
+    plan = _mapping(result.get("investment_plan"), "investment plan")
+    schedule = _rows(result.get("contribution_schedule"), "contribution schedule", nonempty=True)
+    metric_contributions = [
+        {
+            "timestamp": _mapping(row, "contribution schedule row")["contributed_at"],
+            "amount": _mapping(row, "contribution schedule row")["amount"],
+        }
+        for row in schedule
+    ]
+    metric_snapshots = [
+        {
+            "timestamp": row["timestamp"],
+            "equity": row["equity"],
+            "cash": row["free_cash"],
+            "asset_value": row["crypto_value"],
+            "share_value": row["time_weighted_share_value"],
+        }
+        for row in (_mapping(value, "equity row") for value in curve)
+    ]
+    cash_flow_metrics = build_cash_flow_metrics(
+        initial_capital=plan["initial_capital"],
+        monthly_budget=plan["monthly_budget"],
+        fee_ratio=plan["fee_ratio"],
+        contributions=metric_contributions,
+        snapshots=metric_snapshots,
+        total_fees=result["fees_paid"],
+        period_end=end,
+    )
+
     return {
         "schema_version": SCHEMA_VERSION,
         "experiment": experiment,
@@ -64,9 +95,12 @@ def build_active_result(
             "exit_count": sum(exits.values()),
             "exit_reason_counts": exits,
             "contribution_neutral_return": result["contribution_neutral_return"],
-            "contribution_neutral_max_drawdown": result["contribution_neutral_max_drawdown"],
+            "contribution_neutral_max_drawdown": result[
+                "contribution_neutral_max_drawdown"
+            ],
             "open_position_state": result["end_of_range_position"],
         },
+        "cash_flow_metrics": cash_flow_metrics,
         "contribution_schedule": result["contribution_schedule"],
         "contribution_ledger": result["contribution_ledger"],
         "trade_ledger": trades,
