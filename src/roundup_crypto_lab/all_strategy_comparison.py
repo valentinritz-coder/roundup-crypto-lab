@@ -1,4 +1,4 @@
-"""Reporting helpers for the seven-strategy, controlled comparison."""
+"""Reporting helpers for the controlled multi-strategy comparison."""
 
 from __future__ import annotations
 
@@ -18,13 +18,17 @@ STRATEGY_ORDER = (
     "RoundupTrendPullbackStrategy",
     "RoundupConfirmedBreakoutStrategy",
     "RoundupVolatilitySqueezeStrategy",
+    "RoundupScientificControlBreakoutStrategy",
+    "RoundupRiskAdjustedMomentumStrategy",
+    "RoundupBullPullbackRsiStrategy",
+    "RoundupDistanceReversionStrategy",
 )
 
 
 def validate_comparison(path: Path) -> list[dict[str, int | float | str]]:
     rows = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(rows, list) or len(rows) != len(STRATEGY_ORDER):
-        raise ValueError("comparison must contain exactly seven rows")
+        raise ValueError(f"comparison must contain exactly {len(STRATEGY_ORDER)} rows")
     if [row.get("strategy") for row in rows] != list(STRATEGY_ORDER):
         raise ValueError("comparison strategies must be complete and ordered")
     for row in rows:
