@@ -70,7 +70,10 @@ class RoundupDonchianRetestStrategy(IStrategy):
 
     def populate_exit_trend(self, dataframe: DataFrame, metadata: dict) -> DataFrame:
         dataframe.loc[
-            ((dataframe["close"] < dataframe["donchian_low_20"]) | (dataframe["close"] < dataframe["sma_20"]))
+            (
+                (dataframe["close"] < dataframe["donchian_low_20"])
+                | (dataframe["close"] < dataframe["sma_20"])
+            )
             & (dataframe["volume"] > 0),
             ["exit_long", "exit_tag"],
         ] = (1, "donchian_retest_failed_or_below_sma20")
