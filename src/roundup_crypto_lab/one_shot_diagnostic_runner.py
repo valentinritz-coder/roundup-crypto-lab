@@ -20,7 +20,7 @@ _CUSTOM_EXIT_REASONS = (
 def register_native_exit_reasons() -> None:
     """Normalize every vectorized exit tag introduced by research batch one."""
     differential._NATIVE_REASON_MAP.update(
-        {reason: "exit_signal" for reason in _CUSTOM_EXIT_REASONS}
+        dict.fromkeys(_CUSTOM_EXIT_REASONS, "exit_signal")
     )
 
 
