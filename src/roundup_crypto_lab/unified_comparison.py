@@ -6,7 +6,6 @@ import argparse
 import csv
 import hashlib
 import json
-import math
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any
@@ -46,7 +45,12 @@ def _decimal(value: object, name: str) -> Decimal:
 
 
 def _canonical_hash(value: object) -> str:
-    encoded = json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+    encoded = json.dumps(
+        value,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=True,
+    )
     return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
 
 
@@ -76,11 +80,18 @@ def _validate_metrics(value: object) -> dict[str, Any]:
     xirr = metrics.get("money_weighted_return")
     if xirr is not None:
         _decimal(xirr, "money-weighted return")
-    for field in ("max_drawdown_time_weighted", "max_drawdown_raw_portfolio"):
+    _text(metrics.get("money_weighted_return_status"), "XIRR status")
+    for field in (
+        "max_drawdown_time_weighted",
+        "max_drawdown_raw_portfolio",
+    ):
         value_decimal = _decimal(metrics[field], field)
         if not 0 <= value_decimal <= 1:
             raise ValueError(f"{field} must be between zero and one")
-    utilization = _decimal(metrics["capital_utilization_ratio"], "capital utilization")
+    utilization = _decimal(
+        metrics["capital_utilization_ratio"],
+        "capital utilization",
+    )
     if not 0 <= utilization <= 1:
         raise ValueError("capital utilization must be between zero and one")
     return metrics
@@ -93,8 +104,13 @@ def _schedule(value: object) -> tuple[list[dict[str, Any]], str]:
         row = _mapping(item, "contribution schedule row")
         normalized.append(
             {
-                "contributed_at": _text(row.get("contributed_at"), "contribution timestamp"),
-                "amount": str(_decimal(row.get("amount"), "contribution amount")),
+                "contributed_at": _text(
+                    row.get("contributed_at"),
+                    "contribution timestamp",
+                ),
+                "amount": str(
+                    _decimal(row.get("amount"), "contribution amount")
+                ),
                 "kind": _text(row.get("kind"), "contribution kind"),
             }
         )
@@ -116,14 +132,21 @@ def _scenario(
         "pair": _text(pair, "pair"),
         "timeframe": _text(timeframe, "timeframe"),
         "timerange": _text(timerange, "timerange"),
-        "initial_capital": str(_decimal(plan.get("initial_capital"), "initial capital")),
-        "monthly_budget": str(_decimal(plan.get("monthly_budget"), "monthly budget")),
+        "initial_capital": str(
+            _decimal(plan.get("initial_capital"), "initial capital")
+        ),
+        "monthly_budget": str(
+            _decimal(plan.get("monthly_budget"), "monthly budget")
+        ),
         "contribution_day": plan.get("contribution_day"),
         "contribution_schedule": normalized_schedule,
         "contribution_schedule_hash": schedule_hash,
         "fee_ratio": str(_decimal(plan.get("fee_ratio"), "fee ratio")),
         "capital_mode": _text(capital_mode, "capital mode"),
-        "repository_commit": _text(repository_commit, "repository commit"),
+        "repository_commit": _text(
+            repository_commit,
+            "repository commit",
+        ),
     }
     day = scenario["contribution_day"]
     if isinstance(day, bool) or not isinstance(day, int) or not 1 <= day <= 31:
@@ -133,13 +156,23 @@ def _scenario(
 
 
 def _active_rows(payload: dict[str, Any]) -> list[dict[str, Any]]:
-    metadata = _mapping(payload.get("native_metadata"), "active native metadata")
+    metadata = _mapping(
+        payload.get("native_metadata"),
+        "active native metadata",
+    )
     commit = metadata.get("commit_sha")
     rows = []
-    for item in _rows(payload.get("active_investor_cash_flow_simulation"), "active results"):
+    active_results = _rows(
+        payload.get("active_investor_cash_flow_simulation"),
+        "active results",
+    )
+    for item in active_results:
         result = _mapping(item, "active result")
         experiment = _mapping(result.get("experiment"), "active experiment")
-        plan = _mapping(experiment.get("investment_plan"), "active investment plan")
+        plan = _mapping(
+            experiment.get("investment_plan"),
+            "active investment plan",
+        )
         scenario = _scenario(
             pair=experiment.get("selected_pair"),
             timeframe=experiment.get("timeframe"),
@@ -156,8 +189,14 @@ def _active_rows(payload: dict[str, Any]) -> list[dict[str, Any]]:
                 "scenario": scenario,
                 "category": "active",
                 "method": _text(experiment.get("strategy"), "strategy"),
-                "method_detail": _text(experiment.get("execution_model"), "execution model"),
-                "result_schema_version": _text(result.get("schema_version"), "result schema"),
+                "method_detail": _text(
+                    experiment.get("execution_model"),
+                    "execution model",
+                ),
+                "result_schema_version": _text(
+                    result.get("schema_version"),
+                    "result schema",
+                ),
                 "number_of_actions": legacy.get("entry_count"),
                 "metrics": metrics,
             }
@@ -190,10 +229,18 @@ def _passive_rows(payload: dict[str, Any]) -> list[dict[str, Any]]:
                 "scenario": scenario,
                 "category": "passive",
                 "method": _text(result.get("benchmark"), "benchmark"),
-                "method_detail": _text(result.get("deployment_method"), "deployment method"),
-                "result_schema_version": _text(payload.get("schema_version"), "passive schema"),
+                "method_detail": _text(
+                    result.get("deployment_method"),
+                    "deployment method",
+                ),
+                "result_schema_version": _text(
+                    payload.get("schema_version"),
+                    "passive schema",
+                ),
                 "number_of_actions": result.get("number_of_buys"),
-                "metrics": _validate_metrics(result.get("cash_flow_metrics")),
+                "metrics": _validate_metrics(
+                    result.get("cash_flow_metrics")
+                ),
             }
         )
     return rows
@@ -207,13 +254,20 @@ def _rank_group(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
             raise ValueError("duplicate scenario and method identifier")
         identifiers.add(identifier)
         actions = row["number_of_actions"]
-        if isinstance(actions, bool) or not isinstance(actions, int) or actions < 0:
+        if (
+            isinstance(actions, bool)
+            or not isinstance(actions, int)
+            or actions < 0
+        ):
             raise ValueError("number of actions must be a non-negative integer")
     skill = sorted(
         rows,
         key=lambda row: (
             -_decimal(row["metrics"]["time_weighted_return"], "TWR"),
-            _decimal(row["metrics"]["max_drawdown_time_weighted"], "TWR drawdown"),
+            _decimal(
+                row["metrics"]["max_drawdown_time_weighted"],
+                "TWR drawdown",
+            ),
             row["category"],
             row["method"],
         ),
@@ -227,14 +281,28 @@ def _rank_group(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
             row["method"],
         ),
     )
-    skill_rank = {(row["category"], row["method"]): index + 1 for index, row in enumerate(skill)}
+    skill_rank = {
+        (row["category"], row["method"]): index + 1
+        for index, row in enumerate(skill)
+    }
     investor_rank = {
-        (row["category"], row["method"]): index + 1 for index, row in enumerate(investor)
+        (row["category"], row["method"]): index + 1
+        for index, row in enumerate(investor)
     }
     ranked = []
-    for row in sorted(rows, key=lambda item: (item["category"], item["method"])):
+    ordered = sorted(
+        rows,
+        key=lambda item: (item["category"], item["method"]),
+    )
+    for row in ordered:
         key = (row["category"], row["method"])
-        ranked.append({**row, "strategy_skill_rank": skill_rank[key], "investor_outcome_rank": investor_rank[key]})
+        ranked.append(
+            {
+                **row,
+                "strategy_skill_rank": skill_rank[key],
+                "investor_outcome_rank": investor_rank[key],
+            }
+        )
     return ranked
 
 
@@ -253,7 +321,9 @@ def build_unified_comparison(
     for row in rows:
         grouped.setdefault(row["scenario"]["scenario_id"], []).append(row)
     if strict_single_scenario and len(grouped) != 1:
-        raise ValueError("active and passive inputs do not share one comparable scenario")
+        raise ValueError(
+            "active and passive inputs do not share one comparable scenario"
+        )
     groups = []
     for scenario_id in sorted(grouped):
         group_rows = grouped[scenario_id]
@@ -270,9 +340,15 @@ def build_unified_comparison(
     return {
         "schema_version": SCHEMA_VERSION,
         "interpretations": {
-            "strategy_skill": "Ranked primarily by TWR, then contribution-neutral drawdown.",
-            "investor_outcome": "Ranked primarily by final value, then absolute profit.",
-            "pair_scope": "Pair groups are alternative scenarios, not a diversified portfolio.",
+            "strategy_skill": (
+                "Ranked primarily by TWR, then contribution-neutral drawdown."
+            ),
+            "investor_outcome": (
+                "Ranked primarily by final value, then absolute profit."
+            ),
+            "pair_scope": (
+                "Pair groups are alternative scenarios, not a diversified portfolio."
+            ),
         },
         "scenario_groups": groups,
     }
@@ -305,28 +381,68 @@ def write_csv(payload: dict[str, Any], path: Path) -> None:
         writer.writerows(rows)
 
 
+def _format_xirr(metrics: dict[str, Any]) -> str:
+    value = metrics["money_weighted_return"]
+    if value is not None:
+        return f"{Decimal(value):.2%}"
+    return f"N/A ({metrics['money_weighted_return_status']})"
+
+
+def _markdown_row(row: dict[str, Any]) -> str:
+    metrics = row["metrics"]
+    values = (
+        row["strategy_skill_rank"],
+        row["investor_outcome_rank"],
+        row["category"],
+        row["method"],
+        row["number_of_actions"],
+        f"{Decimal(metrics['final_value']):.2f}",
+        f"{Decimal(metrics['profit_abs']):.2f}",
+        f"{Decimal(metrics['time_weighted_return']):.2%}",
+        _format_xirr(metrics),
+        f"{Decimal(metrics['total_fees']):.2f}",
+        f"{Decimal(metrics['final_cash']):.2f}",
+        f"{Decimal(metrics['capital_utilization_ratio']):.2%}",
+        f"{Decimal(metrics['max_drawdown_time_weighted']):.2%}",
+        f"{Decimal(metrics['max_drawdown_raw_portfolio']):.2%}",
+    )
+    return "| " + " | ".join(str(value) for value in values) + " |"
+
+
 def render_markdown(payload: dict[str, Any]) -> str:
     lines = ["# Unified scenario comparison", ""]
+    header = (
+        "| Skill rank | Outcome rank | Category | Method | Actions | "
+        "Final value | Profit | TWR | XIRR | Fees | Cash | Utilization | "
+        "TWR DD | Raw DD |"
+    )
+    separator = (
+        "| ---: | ---: | --- | --- | ---: | ---: | ---: | ---: | "
+        "---: | ---: | ---: | ---: | ---: | ---: |"
+    )
     for group in payload["scenario_groups"]:
         scenario = group["scenario"]
+        scenario_line = (
+            f"Scenario `{scenario['scenario_id']}` · "
+            f"`{scenario['timerange']}` · `{scenario['timeframe']}`"
+        )
         lines += [
             f"## {scenario['pair']} · {scenario['capital_mode']}",
             "",
-            f"Scenario `{scenario['scenario_id']}` · `{scenario['timerange']}` · `{scenario['timeframe']}`",
+            scenario_line,
             "",
-            "| Skill rank | Outcome rank | Category | Method | Actions | Final value | Profit | TWR | XIRR | Fees | Cash | Utilization | TWR DD | Raw DD |",
-            "| ---: | ---: | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
+            header,
+            separator,
         ]
-        for row in sorted(group["rows"], key=lambda item: item["strategy_skill_rank"]):
-            metrics = row["metrics"]
-            xirr = metrics["money_weighted_return"]
-            xirr_text = f"{Decimal(xirr):.2%}" if xirr is not None else f"N/A ({metrics['money_weighted_return_status']})"
-            lines.append(
-                f"| {row['strategy_skill_rank']} | {row['investor_outcome_rank']} | {row['category']} | {row['method']} | {row['number_of_actions']} | {Decimal(metrics['final_value']):.2f} | {Decimal(metrics['profit_abs']):.2f} | {Decimal(metrics['time_weighted_return']):.2%} | {xirr_text} | {Decimal(metrics['total_fees']):.2f} | {Decimal(metrics['final_cash']):.2f} | {Decimal(metrics['capital_utilization_ratio']):.2%} | {Decimal(metrics['max_drawdown_time_weighted']):.2%} | {Decimal(metrics['max_drawdown_raw_portfolio']):.2%} |"
-            )
+        ordered = sorted(
+            group["rows"],
+            key=lambda item: item["strategy_skill_rank"],
+        )
+        lines.extend(_markdown_row(row) for row in ordered)
         lines += [
             "",
-            "Strategy skill and investor outcome are separate rankings. This pair-specific group is not a diversified portfolio.",
+            "Strategy skill and investor outcome are separate rankings. "
+            "This pair-specific group is not a diversified portfolio.",
             "",
         ]
     return "\n".join(lines)
@@ -343,17 +459,29 @@ def main() -> None:
     args = parser.parse_args()
     if not args.active or not args.passive:
         parser.error("at least one active and one passive artifact are required")
-    active = [json.loads(path.read_text(encoding="utf-8")) for path in args.active]
-    passive = [json.loads(path.read_text(encoding="utf-8")) for path in args.passive]
+    active = [
+        json.loads(path.read_text(encoding="utf-8"))
+        for path in args.active
+    ]
+    passive = [
+        json.loads(path.read_text(encoding="utf-8"))
+        for path in args.passive
+    ]
     payload = build_unified_comparison(
         active,
         passive,
         strict_single_scenario=args.strict_single_scenario,
     )
     args.output.parent.mkdir(parents=True, exist_ok=True)
-    args.output.write_text(json.dumps(payload, indent=2, allow_nan=False) + "\n", encoding="utf-8")
+    args.output.write_text(
+        json.dumps(payload, indent=2, allow_nan=False) + "\n",
+        encoding="utf-8",
+    )
     write_csv(payload, args.csv)
-    args.summary.write_text(render_markdown(payload) + "\n", encoding="utf-8")
+    args.summary.write_text(
+        render_markdown(payload) + "\n",
+        encoding="utf-8",
+    )
 
 
 if __name__ == "__main__":
