@@ -85,19 +85,35 @@ def test_summary_reports_success_failure_and_missing(tmp_path: Path) -> None:
 def test_duplicate_unknown_and_wrong_registry_statuses_fail(tmp_path: Path) -> None:
     registry = load_registry()
     scenario = registry.scenarios[0]
-    first = write_status(tmp_path / "one", scenario.scenario_id, registry.registry_id, "success")
+    first = write_status(
+        tmp_path / "one",
+        scenario.scenario_id,
+        registry.registry_id,
+        "success",
+    )
     duplicate = write_status(
-        tmp_path / "two", scenario.scenario_id, registry.registry_id, "success"
+        tmp_path / "two",
+        scenario.scenario_id,
+        registry.registry_id,
+        "success",
     )
     with pytest.raises(ValueError, match="duplicate campaign status"):
         build_summary(registry, [first, duplicate])
 
-    unknown = write_status(tmp_path / "unknown", "unknown-scenario", registry.registry_id, "success")
+    unknown = write_status(
+        tmp_path / "unknown",
+        "unknown-scenario",
+        registry.registry_id,
+        "success",
+    )
     with pytest.raises(ValueError, match="unknown scenarios"):
         build_summary(registry, [unknown])
 
     wrong_registry = write_status(
-        tmp_path / "wrong", scenario.scenario_id, "different-registry", "success"
+        tmp_path / "wrong",
+        scenario.scenario_id,
+        "different-registry",
+        "success",
     )
     with pytest.raises(ValueError, match="registry id"):
         build_summary(registry, [wrong_registry])
