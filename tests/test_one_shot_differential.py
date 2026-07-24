@@ -108,8 +108,13 @@ def test_native_reason_normalization_and_unknown_reason_rejection(tmp_path) -> N
         strategy,
     )
     assert normalized["trades"][0]["exit_reason"] == "stop_loss"
+    forced = native(
+        _native_zip(tmp_path / "forced.zip", strategy, reason="force_exit"),
+        strategy,
+    )
+    assert forced["trades"][0]["exit_reason"] == "force_exit"
     with pytest.raises(ValueError, match="unsupported native exit reason"):
-        native(_native_zip(tmp_path / "bad.zip", strategy, reason="force_exit"), strategy)
+        native(_native_zip(tmp_path / "bad.zip", strategy, reason="liquidation"), strategy)
 
 
 def test_open_positions_are_explicitly_outside_the_differential_scope(tmp_path) -> None:

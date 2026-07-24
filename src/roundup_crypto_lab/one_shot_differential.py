@@ -24,6 +24,7 @@ _NATIVE_REASON_MAP = {
     "close_below_sma20": "exit_signal",
     "stop_loss": "stop_loss",
     "trailing_stop_loss": "stop_loss",
+    "force_exit": "force_exit",
 }
 
 
