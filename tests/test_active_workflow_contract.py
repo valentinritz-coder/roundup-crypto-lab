@@ -45,7 +45,7 @@ def test_all_strategy_workflow_executes_and_consumes_effective_arguments() -> No
     differential = by_name["Diagnose one-shot native differential"]
     assert differential["if"] == "${{ inputs.capital_mode == 'one_shot_capital' }}"
     command = differential["run"]
-    assert "one_shot_diagnostic combine" in command
+    assert "one_shot_diagnostic_runner combine" in command
     assert "assert len" not in command
     for strategy in STRATEGIES:
         assert f"differential-{strategy}.json" in command
