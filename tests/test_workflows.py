@@ -101,12 +101,16 @@ def test_all_strategy_comparison_workflow_contract() -> None:
         "RoundupRiskAdjustedMomentumStrategy",
         "RoundupBullPullbackRsiStrategy",
         "RoundupDistanceReversionStrategy",
+        "RoundupObvConfirmedBreakoutStrategy",
+        "RoundupTrendQualityKerAdxStrategy",
+        "RoundupDonchianRetestStrategy",
+        "RoundupCapitulationRecoveryStrategy",
     )
     for name in strategies:
         assert workflow.count(f"run_backtest {name}") == 1
         assert f"--result {name}=" in workflow
         assert f"--active-result artifacts/results/active-{name}.json" in workflow
-    assert "Run eleven equivalent backtests" in workflow
+    assert "Run fifteen equivalent backtests" in workflow
     assert workflow.count("--config artifacts/pair-config.json") >= 1
     backtests = workflow.split("run_backtest()", 1)[1].split(
         "run_backtest RoundupBreakoutStrategy", 1
