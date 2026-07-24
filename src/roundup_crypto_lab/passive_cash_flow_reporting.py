@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
@@ -61,7 +62,7 @@ def enrich_passive_result(result: dict[str, Any]) -> dict[str, Any]:
             period_end=end,
         )
         benchmark["cash_flow_metrics"] = metrics
-        if str(benchmark["profit_total_abs"]) != metrics["profit_abs"]:
+        if Decimal(str(benchmark["profit_total_abs"])) != Decimal(str(metrics["profit_abs"])):
             raise ValueError("passive profit differs from cash-flow metrics")
     result["schema_version"] = PASSIVE_SCHEMA_VERSION
     return result
@@ -100,7 +101,9 @@ def main() -> None:
     result = json.loads(args.input.read_text(encoding="utf-8"))
     enrich_passive_result(result)
     args.output.parent.mkdir(parents=True, exist_ok=True)
-    args.output.write_text(json.dumps(result, indent=2, allow_nan=False) + "\n", encoding="utf-8")
+    args.output.write_text(
+        json.dumps(result, indent=2, allow_nan=False) + "\n", encoding="utf-8"
+    )
     if args.output_dir:
         write_metrics_csv(result, args.output_dir)
 
