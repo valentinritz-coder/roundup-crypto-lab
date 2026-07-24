@@ -39,13 +39,17 @@ def _document(strategy: str, status: str = "passed") -> dict[str, object]:
     }
 
 
-def test_batch_one_exit_tags_normalize_to_exit_signal() -> None:
+def test_research_exit_tags_normalize_to_exit_signal() -> None:
     register_native_exit_reasons()
     for reason in (
         "control_breakdown_10",
         "momentum_lost_or_below_sma20",
         "rsi2_or_sma20_mean_reversion",
         "distance_reverted_to_ema20",
+        "obv_or_sma20_breakdown",
+        "trend_quality_lost_or_below_sma20",
+        "donchian_retest_failed_or_below_sma20",
+        "capitulation_recovery_completed",
     ):
         assert _normalize_native_reason(reason) == "exit_signal"
 
