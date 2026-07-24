@@ -226,9 +226,11 @@ def _assert_accounting_invariants(
         raise ValueError("final ledger cumulative quantity does not equal final quantity")
     if contributions != expected_contributions:
         raise ValueError("gross investor contributions do not equal the investment plan")
-    # Decimal divisions used to split DCA buckets can retain a sub-atto residue;
-    # this is normalized to cash zero at execution and is the sole tolerance here.
-    if abs(contributions - invested - cash) > Decimal("1e-24"):
+    # Decimal divisions used to split DCA buckets can retain a sub-atto residue.
+    # Each executed purchase can contribute at most one unit of rounding tolerance,
+    # while materially incorrect cash accounting still fails closed.
+    cash_tolerance = Decimal("1e-24") * max(1, len(purchases))
+    if abs(contributions - invested - cash) > cash_tolerance:
         raise ValueError("portfolio cash accounting invariant failed")
     if final_value != cash + quantity * final_price:
         raise ValueError("final portfolio valuation invariant failed")
