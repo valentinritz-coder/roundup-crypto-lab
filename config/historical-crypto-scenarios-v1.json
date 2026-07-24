@@ -1,0 +1,104 @@
+{
+  "schema_version": "historical-crypto-scenarios/v1",
+  "registry_id": "historical-one-shot-2024-2026-v1",
+  "frozen_at_utc": "2026-07-24T00:00:00Z",
+  "selection_policy": "Windows and parameters were fixed before the campaign results were inspected. Any later change requires a new registry version and a documented rationale.",
+  "scenarios": [
+    {
+      "scenario_id": "btc-20240401-20241001-one-shot-v1",
+      "pair": "BTC/EUR",
+      "timeframe": "4h",
+      "timerange": "20240401-20241001",
+      "capital_mode": "one_shot_capital",
+      "initial_capital": "40",
+      "monthly_budget": "40",
+      "contribution_day": 1,
+      "fee_ratio": "0.0026",
+      "regime_label": "historical-window-1"
+    },
+    {
+      "scenario_id": "btc-20241001-20250401-one-shot-v1",
+      "pair": "BTC/EUR",
+      "timeframe": "4h",
+      "timerange": "20241001-20250401",
+      "capital_mode": "one_shot_capital",
+      "initial_capital": "40",
+      "monthly_budget": "40",
+      "contribution_day": 1,
+      "fee_ratio": "0.0026",
+      "regime_label": "historical-window-2"
+    },
+    {
+      "scenario_id": "btc-20250401-20251001-one-shot-v1",
+      "pair": "BTC/EUR",
+      "timeframe": "4h",
+      "timerange": "20250401-20251001",
+      "capital_mode": "one_shot_capital",
+      "initial_capital": "40",
+      "monthly_budget": "40",
+      "contribution_day": 1,
+      "fee_ratio": "0.0026",
+      "regime_label": "historical-window-3"
+    },
+    {
+      "scenario_id": "btc-20251001-20260125-one-shot-v1",
+      "pair": "BTC/EUR",
+      "timeframe": "4h",
+      "timerange": "20251001-20260125",
+      "capital_mode": "one_shot_capital",
+      "initial_capital": "40",
+      "monthly_budget": "40",
+      "contribution_day": 1,
+      "fee_ratio": "0.0026",
+      "regime_label": "historical-window-4"
+    },
+    {
+      "scenario_id": "eth-20240401-20241001-one-shot-v1",
+      "pair": "ETH/EUR",
+      "timeframe": "4h",
+      "timerange": "20240401-20241001",
+      "capital_mode": "one_shot_capital",
+      "initial_capital": "40",
+      "monthly_budget": "40",
+      "contribution_day": 1,
+      "fee_ratio": "0.0026",
+      "regime_label": "historical-window-1"
+    },
+    {
+      "scenario_id": "eth-20241001-20250401-one-shot-v1",
+      "pair": "ETH/EUR",
+      "timeframe": "4h",
+      "timerange": "20241001-20250401",
+      "capital_mode": "one_shot_capital",
+      "initial_capital": "40",
+      "monthly_budget": "40",
+      "contribution_day": 1,
+      "fee_ratio": "0.0026",
+      "regime_label": "historical-window-2"
+    },
+    {
+      "scenario_id": "eth-20250401-20251001-one-shot-v1",
+      "pair": "ETH/EUR",
+      "timeframe": "4h",
+      "timerange": "20250401-20251001",
+      "capital_mode": "one_shot_capital",
+      "initial_capital": "40",
+      "monthly_budget": "40",
+      "contribution_day": 1,
+      "fee_ratio": "0.0026",
+      "regime_label": "historical-window-3"
+    },
+    {
+      "scenario_id": "eth-20251001-20260125-one-shot-v1",
+      "pair": "ETH/EUR",
+      "timeframe": "4h",
+      "timerange": "20251001-20260125",
+      "capital_mode": "one_shot_capital",
+      "initial_capital": "40",
+      "monthly_budget": "40",
+      "contribution_day": 1,
+      "fee_ratio": "0.0026",
+      "regime_label": "historical-window-4"
+    }
+  ]
+}
