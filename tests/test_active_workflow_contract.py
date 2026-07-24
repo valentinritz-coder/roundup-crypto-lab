@@ -2,16 +2,10 @@ from pathlib import Path
 
 import yaml
 
+from roundup_crypto_lab.all_strategy_comparison import STRATEGY_ORDER
+
 WORKFLOW = Path(".github/workflows/all-strategy-comparison.yml")
-STRATEGIES = (
-    "RoundupBreakoutStrategy",
-    "RoundupBreakoutTrendStrategy",
-    "RoundupBreakoutAtrStrategy",
-    "RoundupBreakoutAtrVolumeStrategy",
-    "RoundupTrendPullbackStrategy",
-    "RoundupConfirmedBreakoutStrategy",
-    "RoundupVolatilitySqueezeStrategy",
-)
+STRATEGIES = STRATEGY_ORDER
 
 
 def test_all_strategy_workflow_executes_and_consumes_effective_arguments() -> None:
@@ -25,7 +19,12 @@ def test_all_strategy_workflow_executes_and_consumes_effective_arguments() -> No
     assert '"fee": float(os.environ["FEE"])' in validate
     assert "artifacts/pair-config.json" in validate
 
-    backtests = by_name["Run seven equivalent backtests"]["run"]
+    backtest_step = next(
+        step
+        for name, step in by_name.items()
+        if name.startswith("Run ") and name.endswith(" equivalent backtests")
+    )
+    backtests = backtest_step["run"]
     assert "--config artifacts/pair-config.json" in backtests
     for strategy in STRATEGIES:
         assert backtests.count(f"run_backtest {strategy} ") == 1
