@@ -70,12 +70,16 @@ def render_summary(
             "| Strategy | Status | Trades checked | Warnings |",
             "| --- | --- | ---: | ---: |",
         ]
-        lines.extend(
-            f"| {row['strategy']} | {row['status']} | {row['trade_count']} | {len(row.get('warnings', []))} |"
-            for row in differential["strategies"]
-        )
+        for row in differential["strategies"]:
+            warning_count = len(row.get("warnings", []))
+            lines.append(
+                f"| {row['strategy']} | {row['status']} | "
+                f"{row['trade_count']} | {warning_count} |"
+            )
         warning_rows = [
-            row for row in differential["strategies"] if row.get("status") == "passed_with_warnings"
+            row
+            for row in differential["strategies"]
+            if row.get("status") == "passed_with_warnings"
         ]
         if warning_rows:
             lines += [
@@ -102,7 +106,9 @@ def main() -> None:
     results = [json.loads(path.read_text(encoding="utf-8")) for path in args.active_result]
     experiment = validate_result_set(results)
     native = validate_comparison(args.native_comparison)
-    metadata = _mapping(json.loads(args.metadata.read_text(encoding="utf-8")), "native metadata")
+    metadata = _mapping(
+        json.loads(args.metadata.read_text(encoding="utf-8")), "native metadata"
+    )
     validate_native_metadata(metadata, experiment)
 
     differential: dict[str, Any] | None = None
@@ -128,7 +134,9 @@ def main() -> None:
     }
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.summary.parent.mkdir(parents=True, exist_ok=True)
-    args.output.write_text(json.dumps(output, default=str, indent=2) + "\n", encoding="utf-8")
+    args.output.write_text(
+        json.dumps(output, default=str, indent=2) + "\n", encoding="utf-8"
+    )
     args.summary.write_text(
         render_summary(native, results, experiment, differential), encoding="utf-8"
     )
