@@ -6,6 +6,9 @@ import numpy as np
 import pandas as pd
 import pytest
 
+pytest.importorskip("freqtrade")
+pytest.importorskip("talib")
+
 ROOT = Path(__file__).parents[1]
 STRATEGY_DIR = ROOT / "user_data/strategies"
 CASES = (
