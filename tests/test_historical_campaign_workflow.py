@@ -2,7 +2,6 @@ from pathlib import Path
 
 import yaml
 
-
 ROOT = Path(__file__).resolve().parents[1]
 CAMPAIGN = ROOT / ".github/workflows/historical-crypto-campaign.yml"
 COMPARISON = ROOT / ".github/workflows/all-strategy-comparison.yml"
