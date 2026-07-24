@@ -17,9 +17,9 @@ def source(strategy: str) -> str:
     return (STRATEGY_DIR / f"{strategy}.py").read_text(encoding="utf-8")
 
 
-def test_batch_one_is_complete_and_ordered_in_comparison_registry() -> None:
-    assert STRATEGY_ORDER[-4:] == BATCH_ONE
-    assert len(STRATEGY_ORDER) == 11
+def test_batch_one_remains_complete_and_ordered_in_comparison_registry() -> None:
+    assert STRATEGY_ORDER[7:11] == BATCH_ONE
+    assert len(STRATEGY_ORDER) == 15
 
 
 def test_batch_one_sources_are_parseable_long_only_fixed_stop_strategies() -> None:
