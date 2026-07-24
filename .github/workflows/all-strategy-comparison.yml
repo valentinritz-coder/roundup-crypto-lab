@@ -6,9 +6,37 @@ on:
       timeframe: {description: Fixed Freqtrade timeframe, required: true, default: "4h", type: choice, options: ["4h"]}
       pair: {description: Supported single pair, required: true, default: "BTC/EUR", type: choice, options: ["BTC/EUR", "ETH/EUR"]}
       capital_mode: {description: Investor capital mode, required: true, default: "recurring_monthly_contributions", type: choice, options: ["recurring_monthly_contributions", "one_shot_capital"]}
+      initial_capital: {description: Initial investor capital, required: true, default: "40", type: string}
+      monthly_budget: {description: Monthly investor budget, required: true, default: "40", type: string}
+      contribution_day: {description: Monthly contribution day, required: true, default: 1, type: number}
+      fee_ratio: {description: Trading fee ratio, required: true, default: "0.0026", type: string}
+      scenario_id: {description: Optional stable scenario identifier, required: false, default: "manual", type: string}
+      registry_id: {description: Optional registry identifier, required: false, default: "manual", type: string}
+      artifact_name: {description: Artifact name prefix, required: false, default: "all-strategy-comparison", type: string}
+  workflow_call:
+    inputs:
+      timerange: {required: true, type: string}
+      timeframe: {required: true, type: string}
+      pair: {required: true, type: string}
+      capital_mode: {required: true, type: string}
+      initial_capital: {required: true, type: string}
+      monthly_budget: {required: true, type: string}
+      contribution_day: {required: true, type: number}
+      fee_ratio: {required: true, type: string}
+      scenario_id: {required: true, type: string}
+      registry_id: {required: true, type: string}
+      artifact_name: {required: true, type: string}
 permissions: {contents: read}
-concurrency: {group: kraken-ohlcv-pipeline, cancel-in-progress: false}
-env: {INITIAL_CAPITAL: '40', MONTHLY_BUDGET: '40', CONTRIBUTION_DAY: '1', FEE: '0.0026', FREQTRADE_VERSION: '2026.6', FREQTRADE_COMMIT: b604e2fd70539f7f73d3c62c16ce0b155bbab319}
+concurrency:
+  group: 'kraken-ohlcv-pipeline-${{ inputs.scenario_id }}-${{ github.run_id }}'
+  cancel-in-progress: false
+env:
+  INITIAL_CAPITAL: '${{ inputs.initial_capital }}'
+  MONTHLY_BUDGET: '${{ inputs.monthly_budget }}'
+  CONTRIBUTION_DAY: '${{ inputs.contribution_day }}'
+  FEE: '${{ inputs.fee_ratio }}'
+  FREQTRADE_VERSION: '2026.6'
+  FREQTRADE_COMMIT: b604e2fd70539f7f73d3c62c16ce0b155bbab319
 jobs:
   compare-all-strategies:
     runs-on: ubuntu-latest
@@ -31,12 +59,15 @@ jobs:
         id: restore-kraken
         with: {path: user_data/data/kraken, key: 'kraken-ohlcv-v1-update-${{ github.run_id }}', restore-keys: kraken-ohlcv-v1-}
       - name: Validate inputs and immutable prepared data
-        env: {TIMERANGE: '${{ inputs.timerange }}', TIMEFRAME: '${{ inputs.timeframe }}', PAIR: '${{ inputs.pair }}', CAPITAL_MODE: '${{ inputs.capital_mode }}'}
+        env: {TIMERANGE: '${{ inputs.timerange }}', TIMEFRAME: '${{ inputs.timeframe }}', PAIR: '${{ inputs.pair }}', CAPITAL_MODE: '${{ inputs.capital_mode }}', SCENARIO_ID: '${{ inputs.scenario_id }}', REGISTRY_ID: '${{ inputs.registry_id }}'}
         run: |
           python -m roundup_crypto_lab.breakout_comparison validate-timerange "$TIMERANGE"
           test "$TIMEFRAME" = 4h
           test "$PAIR" = BTC/EUR || test "$PAIR" = ETH/EUR
           test "$CAPITAL_MODE" = recurring_monthly_contributions || test "$CAPITAL_MODE" = one_shot_capital
+          python -c 'from roundup_crypto_lab.investment_plan import InvestmentPlan; import os; InvestmentPlan(os.environ["INITIAL_CAPITAL"], os.environ["MONTHLY_BUDGET"], os.environ["FEE"], int(os.environ["CONTRIBUTION_DAY"]))'
+          mkdir -p artifacts/results
+          python -c 'import json, os, pathlib; pathlib.Path("artifacts/results/scenario-metadata.json").write_text(json.dumps({"scenario_id": os.environ["SCENARIO_ID"], "registry_id": os.environ["REGISTRY_ID"], "pair": os.environ["PAIR"], "timeframe": os.environ["TIMEFRAME"], "timerange": os.environ["TIMERANGE"], "capital_mode": os.environ["CAPITAL_MODE"], "initial_capital": os.environ["INITIAL_CAPITAL"], "monthly_budget": os.environ["MONTHLY_BUDGET"], "contribution_day": int(os.environ["CONTRIBUTION_DAY"]), "fee_ratio": os.environ["FEE"]}, indent=2, sort_keys=True) + "\n")'
           python -c 'from pathlib import Path; from roundup_crypto_lab.freqtrade_differential import generate_single_pair_config; import os; generate_single_pair_config(Path("user_data/config.json"), Path("artifacts/pair-config.json"), os.environ["PAIR"], overrides={"dry_run_wallet": int(os.environ["INITIAL_CAPITAL"]), "fee": float(os.environ["FEE"])})'
           test '${{ steps.restore-kraken.outputs.cache-hit }}' != '' || { echo 'No Kraken cache was restored: run Update Kraken data first.'; exit 1; }
           python -m roundup_crypto_lab.breakout_comparison validate-data "$TIMERANGE" user_data/data/kraken |& tee artifacts-data-validation.txt
@@ -96,11 +127,16 @@ jobs:
           python -m roundup_crypto_lab.unified_comparison --active artifacts/results/controlled-comparison.json --passive artifacts/results/scenario-passive.json --strict-single-scenario --output artifacts/results/unified-comparison.json --csv artifacts/results/unified-comparison.csv --summary artifacts/results/unified-summary.md
           cat artifacts/results/job-summary.md >> "$GITHUB_STEP_SUMMARY"
           cat artifacts/results/unified-summary.md >> "$GITHUB_STEP_SUMMARY"
-      # Diagnostics must survive failures.
+      - name: Record scenario status
+        if: always()
+        env: {SCENARIO_ID: '${{ inputs.scenario_id }}', REGISTRY_ID: '${{ inputs.registry_id }}', JOB_STATUS: '${{ job.status }}'}
+        run: |
+          mkdir -p artifacts
+          python -c 'import json, os, pathlib; conclusion = os.environ["JOB_STATUS"] if os.environ["JOB_STATUS"] in {"success", "failure", "cancelled"} else "failure"; pathlib.Path("artifacts/scenario-status.json").write_text(json.dumps({"schema_version": "historical-crypto-campaign-status/v1", "scenario_id": os.environ["SCENARIO_ID"], "registry_id": os.environ["REGISTRY_ID"], "conclusion": conclusion}, indent=2, sort_keys=True) + "\n")'
       - if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: 'all-strategy-comparison-${{ github.run_id }}'
+          name: '${{ inputs.artifact_name }}-${{ github.run_id }}'
           path: |
             artifacts/
             artifacts-data-validation.txt
