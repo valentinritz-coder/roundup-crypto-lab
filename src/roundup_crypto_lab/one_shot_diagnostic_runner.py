@@ -14,11 +14,15 @@ _CUSTOM_EXIT_REASONS = (
     "momentum_lost_or_below_sma20",
     "rsi2_or_sma20_mean_reversion",
     "distance_reverted_to_ema20",
+    "obv_or_sma20_breakdown",
+    "trend_quality_lost_or_below_sma20",
+    "donchian_retest_failed_or_below_sma20",
+    "capitulation_recovery_completed",
 )
 
 
 def register_native_exit_reasons() -> None:
-    """Normalize every vectorized exit tag introduced by research batch one."""
+    """Normalize every vectorized exit tag introduced by the research batches."""
     differential._NATIVE_REASON_MAP.update(
         dict.fromkeys(_CUSTOM_EXIT_REASONS, "exit_signal")
     )
