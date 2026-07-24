@@ -40,24 +40,37 @@ def render_summary(
     experiment: dict[str, Any],
     differential: dict[str, Any] | None,
 ) -> str:
+    native_header = (
+        "| Strategy | Trades | Profit total % | Profit abs | Win rate % | "
+        "Max drawdown % | Profit factor | Expectancy |"
+    )
+    native_separator = "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |"
     lines = [
         "# Native Freqtrade one-shot reference",
         "",
-        "| Strategy | Trades | Profit total % | Profit abs | Win rate % | Max drawdown % | Profit factor | Expectancy |",  # noqa: E501
-        "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
+        native_header,
+        native_separator,
     ]
     lines.extend(
-        "| {strategy} | {trades} | {profit_total:.2%} | {profit_total_abs:.8f} | {winrate:.2%} | {max_drawdown_account:.2%} | {profit_factor:.4f} | {expectancy:.8f} |".format(  # noqa: E501
-            **row
-        )
+        "| {strategy} | {trades} | {profit_total:.2%} | {profit_total_abs:.8f} | "
+        "{winrate:.2%} | {max_drawdown_account:.2%} | {profit_factor:.4f} | "
+        "{expectancy:.8f} |".format(**row)
         for row in native
+    )
+    active_header = (
+        "| Strategy | Contributed | Final value | Profit | TWR | XIRR | "
+        "Utilization | TWR drawdown | Raw drawdown | Fees | Entries | Position |"
+    )
+    active_separator = (
+        "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | "
+        "---: | ---: | --- |"
     )
     lines += [
         "",
         "# Active investor cash-flow simulation",
         "",
-        "| Strategy | Contributed | Final value | Profit | TWR | XIRR | Utilization | TWR drawdown | Raw drawdown | Fees | Entries | Position |",  # noqa: E501
-        "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |",
+        active_header,
+        active_separator,
     ]
     for result in results:
         legacy = _mapping(result.get("adapter_metrics"), "adapter metrics")
@@ -84,9 +97,9 @@ def render_summary(
     if experiment["capital_mode"] == "recurring_monthly_contributions":
         lines += [
             "",
-            "TWR and time-weighted drawdown describe method performance without contribution timing. "
-            "Final value, profit, and XIRR describe the investor outcome. Native one-shot profit is "
-            "not used to rank recurring simulations.",
+            "TWR and time-weighted drawdown describe method performance without "
+            "contribution timing. Final value, profit, and XIRR describe the investor "
+            "outcome. Native one-shot profit is not used to rank recurring simulations.",
         ]
     elif differential is not None:
         lines += [
@@ -112,9 +125,9 @@ def render_summary(
         if warning_rows:
             lines += [
                 "",
-                "Warning-only results preserve identical trade counts, timestamps, and exit "
-                "reasons. They record bounded rounding or supported intrabar stop-model "
-                "differences in the artifact.",
+                "Warning-only results preserve identical trade counts, timestamps, and "
+                "exit reasons. They record bounded rounding or supported intrabar "
+                "stop-model differences in the artifact.",
             ]
         lines += [
             "",
@@ -159,11 +172,14 @@ def main() -> None:
     parser.add_argument("--one-shot-differential", type=Path)
     args = parser.parse_args()
 
-    results = [json.loads(path.read_text(encoding="utf-8")) for path in args.active_result]
+    results = [
+        json.loads(path.read_text(encoding="utf-8")) for path in args.active_result
+    ]
     experiment = validate_result_set(results)
     native = validate_comparison(args.native_comparison)
     metadata = _mapping(
-        json.loads(args.metadata.read_text(encoding="utf-8")), "native metadata"
+        json.loads(args.metadata.read_text(encoding="utf-8")),
+        "native metadata",
     )
     validate_native_metadata(metadata, experiment)
 
@@ -192,11 +208,14 @@ def main() -> None:
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.summary.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(
-        json.dumps(output, default=str, indent=2) + "\n", encoding="utf-8"
+        json.dumps(output, default=str, indent=2) + "\n",
+        encoding="utf-8",
     )
     args.summary.write_text(
-        render_summary(native, results, experiment, differential), encoding="utf-8"
+        render_summary(native, results, experiment, differential),
+        encoding="utf-8",
     )
     write_cash_flow_csv(
-        results, args.csv or args.output.with_name("cash-flow-metrics.csv")
+        results,
+        args.csv or args.output.with_name("cash-flow-metrics.csv"),
     )
