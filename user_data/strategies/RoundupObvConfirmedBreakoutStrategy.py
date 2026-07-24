@@ -57,7 +57,10 @@ class RoundupObvConfirmedBreakoutStrategy(IStrategy):
 
     def populate_exit_trend(self, dataframe: DataFrame, metadata: dict) -> DataFrame:
         dataframe.loc[
-            ((dataframe["obv"] < dataframe["obv_sma_20"]) | (dataframe["close"] < dataframe["sma_20"]))
+            (
+                (dataframe["obv"] < dataframe["obv_sma_20"])
+                | (dataframe["close"] < dataframe["sma_20"])
+            )
             & (dataframe["volume"] > 0),
             ["exit_long", "exit_tag"],
         ] = (1, "obv_or_sma20_breakdown")
