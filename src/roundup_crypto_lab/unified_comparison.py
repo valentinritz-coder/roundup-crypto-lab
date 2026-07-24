@@ -44,6 +44,14 @@ def _decimal(value: object, name: str) -> Decimal:
     return number
 
 
+def _canonical_decimal(value: object, name: str) -> str:
+    """Return one plain-string representation for numerically equal decimals."""
+    number = _decimal(value, name)
+    if number == 0:
+        return "0"
+    return format(number.normalize(), "f")
+
+
 def _canonical_hash(value: object) -> str:
     encoded = json.dumps(
         value,
@@ -108,8 +116,9 @@ def _schedule(value: object) -> tuple[list[dict[str, Any]], str]:
                     row.get("contributed_at"),
                     "contribution timestamp",
                 ),
-                "amount": str(
-                    _decimal(row.get("amount"), "contribution amount")
+                "amount": _canonical_decimal(
+                    row.get("amount"),
+                    "contribution amount",
                 ),
                 "kind": _text(row.get("kind"), "contribution kind"),
             }
@@ -132,16 +141,18 @@ def _scenario(
         "pair": _text(pair, "pair"),
         "timeframe": _text(timeframe, "timeframe"),
         "timerange": _text(timerange, "timerange"),
-        "initial_capital": str(
-            _decimal(plan.get("initial_capital"), "initial capital")
+        "initial_capital": _canonical_decimal(
+            plan.get("initial_capital"),
+            "initial capital",
         ),
-        "monthly_budget": str(
-            _decimal(plan.get("monthly_budget"), "monthly budget")
+        "monthly_budget": _canonical_decimal(
+            plan.get("monthly_budget"),
+            "monthly budget",
         ),
         "contribution_day": plan.get("contribution_day"),
         "contribution_schedule": normalized_schedule,
         "contribution_schedule_hash": schedule_hash,
-        "fee_ratio": str(_decimal(plan.get("fee_ratio"), "fee ratio")),
+        "fee_ratio": _canonical_decimal(plan.get("fee_ratio"), "fee ratio"),
         "capital_mode": _text(capital_mode, "capital mode"),
         "repository_commit": _text(
             repository_commit,
