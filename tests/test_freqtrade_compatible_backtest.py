@@ -82,17 +82,17 @@ def test_custom_stop_can_lock_profit_and_never_loosen() -> None:
     )
 
     trade = result["trades"][0]
-    # The second callback receives the current high 130 but still sees the prior
-    # analyzed ATR 10, producing 110 rather than using the current ATR 5.
+    # Candle ATR is already the value visible to the callback. The second candle
+    # therefore uses its supplied ATR 5: 130 - 2 * 5 = 120.
     assert [update["candidate_stop_price"] for update in trade["stop_updates"]] == [
         Decimal("80"),
         Decimal("85"),
-        Decimal("110"),
+        Decimal("120"),
     ]
     assert [update["stop_price_after"] for update in trade["stop_updates"]] == [
         Decimal("88"),
         Decimal("88"),
-        Decimal("110"),
+        Decimal("120"),
     ]
-    assert trade["exit_price"] == Decimal("110")
+    assert trade["exit_price"] == Decimal("120")
     assert trade["exit_price"] > trade["entry_price"]

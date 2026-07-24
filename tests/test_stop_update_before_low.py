@@ -55,13 +55,12 @@ def test_existing_trade_updates_stop_before_testing_intrabar_low() -> None:
     )
 
     trade = result["trades"][0]
-    # Freqtrade passes the current candle high as current_rate while the callback's
-    # DataProvider still exposes the previous analyzed candle. The second candle
-    # therefore uses ATR 3, not its own ATR 2: 110 - 2 * 3 = 104.
-    assert trade["stop_updates"][-1]["atr"] == Decimal("3")
+    # The bridge supplies the ATR visible to the callback on each execution candle.
+    # The engine must use the second candle's supplied ATR 2 without shifting again.
+    assert trade["stop_updates"][-1]["atr"] == Decimal("2")
     assert trade["stop_updates"][-1]["stop_price_before"] == Decimal("100.0")
-    assert trade["stop_updates"][-1]["stop_price_after"] == Decimal("104.0")
-    assert trade["exit_price"] == Decimal("104.0")
+    assert trade["stop_updates"][-1]["stop_price_after"] == Decimal("106.0")
+    assert trade["exit_price"] == Decimal("106.0")
 
 
 def test_existing_stop_gap_still_fills_at_open_before_callback() -> None:

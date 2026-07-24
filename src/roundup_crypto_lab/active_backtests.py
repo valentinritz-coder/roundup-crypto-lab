@@ -30,7 +30,7 @@ class Action(StrEnum):
 
 @dataclass(frozen=True)
 class Candle:
-    """One OHLC snapshot with its own calculated ATR."""
+    """One OHLC snapshot with the ATR already visible to the strategy callback."""
 
     timestamp: datetime
     open: Decimal
@@ -136,14 +136,15 @@ def run_active_backtest(
 
     A stop has deterministic priority over a signal exit in the same candle. A
     gap below the stop fills at open. Otherwise, Freqtrade updates the normal
-    custom stop from the candle high before testing the candle low. Custom
-    callbacks see the previous analyzed candle's indicators while receiving the
-    current candle's rate. On the entry candle, Freqtrade first invokes
+    custom stop from the candle high before testing the candle low. ``Candle.atr``
+    is the indicator value already exposed by the strategy bridge, so the engine
+    must not shift it again. On the entry candle, Freqtrade first invokes
     ``custom_stoploss`` with ``after_fill=True`` and the entry price as
     ``current_rate``. If that stop is not crossed, it invokes the normal callback
-    on the same candle using its high. A stop crossed after this second
-    entry-candle callback uses Freqtrade's pessimistic fill at the candle low.
-    Stops can only tighten. Fees apply to both entry and exit notional.
+    on the same candle using its high. Both callbacks receive the same visible
+    ATR. A stop crossed after this second entry-candle callback uses Freqtrade's
+    pessimistic fill at the candle low. Stops can only tighten. Fees apply to both
+    entry and exit notional.
     """
     if start.tzinfo is None or end.tzinfo is None:
         raise ValueError("timerange timestamps must be timezone-aware")
@@ -168,7 +169,6 @@ def run_active_backtest(
     equity_curve: list[dict[str, object]] = []
     open_trade: dict[str, object] | None = None
     stop_price: Decimal | None = None
-    previous_atr: Decimal | None = None
     trade_number = 0
 
     def close_trade(candle: Candle, price: Decimal, reason: str, tag: str | None = None) -> None:
@@ -227,7 +227,7 @@ def run_active_backtest(
 
     for candle in ordered:
         timestamp = candle.timestamp.astimezone(UTC)
-        analyzed_atr = previous_atr if previous_atr is not None else candle.atr
+        analyzed_atr = candle.atr
         while event_index < len(events) and events[event_index].contributed_at <= timestamp:
             event = events[event_index]
             equity_before = cash + quantity * candle.open
@@ -335,7 +335,6 @@ def run_active_backtest(
                 "open_stop_price": stop_price,
             }
         )
-        previous_atr = candle.atr
     if event_index != len(events):
         raise ValueError("timerange candles did not credit every contribution")
     final_equity = equity_curve[-1]["equity"]
