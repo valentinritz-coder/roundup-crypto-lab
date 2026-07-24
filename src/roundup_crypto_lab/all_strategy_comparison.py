@@ -22,6 +22,10 @@ STRATEGY_ORDER = (
     "RoundupRiskAdjustedMomentumStrategy",
     "RoundupBullPullbackRsiStrategy",
     "RoundupDistanceReversionStrategy",
+    "RoundupObvConfirmedBreakoutStrategy",
+    "RoundupTrendQualityKerAdxStrategy",
+    "RoundupDonchianRetestStrategy",
+    "RoundupCapitulationRecoveryStrategy",
 )
 
 
