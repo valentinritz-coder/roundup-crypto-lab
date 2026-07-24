@@ -19,7 +19,7 @@ jobs:
         run: |
           python -m roundup_crypto_lab.historical_scenarios --output artifacts/canonical-registry.json
           python -m roundup_crypto_lab.historical_campaign matrix --output artifacts/campaign-matrix.json
-          echo "matrix=$(cat artifacts/campaign-matrix.json)" >> "$GITHUB_OUTPUT"
+          python -c 'import json; payload=json.load(open("artifacts/campaign-matrix.json")); print("matrix=" + json.dumps({"include": payload["include"]}, separators=(",", ":")))' >> "$GITHUB_OUTPUT"
           cat artifacts/canonical-registry.json >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@v4
         with:
