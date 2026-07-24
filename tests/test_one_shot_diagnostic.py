@@ -41,7 +41,9 @@ def _trade(**overrides: object) -> dict[str, object]:
     return trade
 
 
-def _comparison(native_trade: dict[str, object], adapter_trade: dict[str, object]) -> tuple[dict[str, object], dict[str, object]]:
+def _comparison(
+    native_trade: dict[str, object], adapter_trade: dict[str, object]
+) -> tuple[dict[str, object], dict[str, object]]:
     expected = {
         "trades": [native_trade],
         "free_cash": Decimal("40"),
@@ -64,7 +66,8 @@ def test_economic_warnings_accept_rounding_but_not_structural_changes() -> None:
     )
     warnings = _economic_warnings(expected, actual)
     assert warnings is not None
-    assert {warning["kind"] for warning in warnings} >= {"rounding", "balance_rounding"}
+    warning_kinds = {warning["kind"] for warning in warnings}
+    assert warning_kinds >= {"rounding", "balance_rounding"}
 
     expected, actual = _comparison(
         _trade(),
@@ -84,7 +87,9 @@ def test_economic_warnings_accept_bounded_same_candle_stop_model_difference() ->
     warnings = _economic_warnings(expected, actual)
 
     assert warnings is not None
-    assert any(warning["kind"] == "supported_stop_model_difference" for warning in warnings)
+    assert any(
+        warning["kind"] == "supported_stop_model_difference" for warning in warnings
+    )
 
 
 def test_economic_warnings_reject_large_stop_or_balance_difference() -> None:
