@@ -8,14 +8,6 @@ from decimal import Decimal, InvalidOperation
 
 SCHEMA_VERSION = "cash-flow-metrics/v1"
 SECONDS_PER_YEAR = Decimal("31557600")
-XIRR_STATUSES = frozenset(
-    {
-        "converged",
-        "undefined_no_negative_cash_flow",
-        "undefined_no_positive_cash_flow",
-        "not_converged",
-    }
-)
 
 
 def _decimal(value: object, name: str) -> Decimal:
@@ -78,7 +70,10 @@ def dated_irr(cash_flows: list[tuple[datetime, Decimal]]) -> tuple[Decimal | Non
     if not any(amount > 0 for _, amount in ordered):
         return None, "undefined_no_positive_cash_flow"
     at_zero = _xnpv(0.0, ordered)
-    tolerance = 1e-12 * max(1.0, sum(abs(float(amount)) for _, amount in ordered))
+    tolerance = 1e-12 * max(
+        1.0,
+        sum(abs(float(amount)) for _, amount in ordered),
+    )
     if math.isfinite(at_zero) and abs(at_zero) <= tolerance:
         return Decimal("0"), "converged"
 
@@ -87,7 +82,8 @@ def dated_irr(cash_flows: list[tuple[datetime, Decimal]]) -> tuple[Decimal | Non
     low_value = _xnpv(low, ordered)
     high_value = _xnpv(high, ordered)
     for _ in range(64):
-        if math.isfinite(low_value) and math.isfinite(high_value) and low_value * high_value <= 0:
+        finite_bracket = math.isfinite(low_value) and math.isfinite(high_value)
+        if finite_bracket and low_value * high_value <= 0:
             break
         high = high * 2.0 + 1.0
         high_value = _xnpv(high, ordered)
@@ -111,12 +107,14 @@ def dated_irr(cash_flows: list[tuple[datetime, Decimal]]) -> tuple[Decimal | Non
 
 
 def _time_weighted_averages(
-    snapshots: list[dict[str, object]], period_end: datetime
+    snapshots: list[dict[str, object]],
+    period_end: datetime,
 ) -> tuple[Decimal, Decimal]:
     if not snapshots:
         raise ValueError("cash-flow metrics require a non-empty equity curve")
-    ordered = sorted(snapshots, key=lambda row: _timestamp(row["timestamp"], "snapshot timestamp"))
-    timestamps = [_timestamp(row["timestamp"], "snapshot timestamp") for row in ordered]
+    timestamps = [
+        _timestamp(row["timestamp"], "snapshot timestamp") for row in snapshots
+    ]
     if len(set(timestamps)) != len(timestamps) or timestamps != sorted(timestamps):
         raise ValueError("cash-flow metric snapshots must be strictly chronological")
     end = _timestamp(period_end, "period end")
@@ -126,9 +124,11 @@ def _time_weighted_averages(
     deployed_weighted = Decimal("0")
     utilization_weighted = Decimal("0")
     duration_total = Decimal("0")
-    for index, row in enumerate(ordered):
+    for index, row in enumerate(snapshots):
         timestamp = timestamps[index]
-        next_timestamp = timestamps[index + 1] if index + 1 < len(ordered) else end
+        next_timestamp = (
+            timestamps[index + 1] if index + 1 < len(snapshots) else end
+        )
         duration = Decimal(str((next_timestamp - timestamp).total_seconds()))
         if duration <= 0:
             raise ValueError("cash-flow metric snapshot duration must be positive")
@@ -136,8 +136,9 @@ def _time_weighted_averages(
         deployed = _decimal(row["asset_value"], "snapshot asset value")
         if equity < 0 or deployed < 0 or deployed > equity:
             raise ValueError("snapshot asset value must be within portfolio equity")
+        utilization = Decimal("0") if equity == 0 else deployed / equity
         deployed_weighted += deployed * duration
-        utilization_weighted += (Decimal("0") if equity == 0 else deployed / equity) * duration
+        utilization_weighted += utilization * duration
         duration_total += duration
     return deployed_weighted / duration_total, utilization_weighted / duration_total
 
@@ -171,27 +172,31 @@ def build_cash_flow_metrics(
         normalized_contributions.append((timestamp, amount))
     normalized_contributions.sort(key=lambda row: row[0])
 
-    normalized_snapshots = sorted(
-        snapshots, key=lambda row: _timestamp(row["timestamp"], "snapshot timestamp")
-    )
-    final = normalized_snapshots[-1]
+    final = snapshots[-1]
     final_value = _decimal(final["equity"], "final value")
     final_cash = _decimal(final["cash"], "final cash")
     final_asset = _decimal(final["asset_value"], "final asset value")
-    share_values = [_decimal(row["share_value"], "share value") for row in normalized_snapshots]
-    equity_values = [_decimal(row["equity"], "portfolio value") for row in normalized_snapshots]
+    share_values = [
+        _decimal(row["share_value"], "share value") for row in snapshots
+    ]
+    equity_values = [_decimal(row["equity"], "portfolio value") for row in snapshots]
     if final_value != final_cash + final_asset:
         raise ValueError("final value must equal cash plus asset value")
 
-    total_contributions = sum((amount for _, amount in normalized_contributions), Decimal("0"))
+    total_contributions = sum(
+        (amount for _, amount in normalized_contributions),
+        Decimal("0"),
+    )
     profit_abs = final_value - total_contributions
     simple_return = profit_abs / total_contributions
     terminal_liquidation_value = final_cash + final_asset * (Decimal("1") - fee)
-    money_weighted_return, money_weighted_status = dated_irr(
-        [(timestamp, -amount) for timestamp, amount in normalized_contributions]
-        + [(_timestamp(final["timestamp"], "final timestamp"), terminal_liquidation_value)]
-    )
-    average_deployed, utilization = _time_weighted_averages(normalized_snapshots, period_end)
+    terminal_timestamp = _timestamp(final["timestamp"], "final timestamp")
+    xirr_cash_flows = [
+        (timestamp, -amount) for timestamp, amount in normalized_contributions
+    ]
+    xirr_cash_flows.append((terminal_timestamp, terminal_liquidation_value))
+    money_weighted_return, money_weighted_status = dated_irr(xirr_cash_flows)
+    average_deployed, utilization = _time_weighted_averages(snapshots, period_end)
     twr = share_values[-1] - Decimal("1")
     twr_drawdown = maximum_drawdown(share_values)
     raw_drawdown = maximum_drawdown(equity_values)
@@ -201,8 +206,12 @@ def build_cash_flow_metrics(
 
     return {
         "schema_version": SCHEMA_VERSION,
-        "cash_flow_timing": "contributions_at_actual_utc_timestamp_before_same-candle_execution",
-        "xirr_terminal_value_basis": "final_cash_plus_asset_value_net_of_one_exit_fee",
+        "cash_flow_timing": (
+            "contributions_at_actual_utc_timestamp_before_same-candle_execution"
+        ),
+        "xirr_terminal_value_basis": (
+            "final_cash_plus_asset_value_net_of_one_exit_fee"
+        ),
         "initial_capital": exact(initial),
         "monthly_budget": exact(monthly),
         "total_contributions": exact(total_contributions),
