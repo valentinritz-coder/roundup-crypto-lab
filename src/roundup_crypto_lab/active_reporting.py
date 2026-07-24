@@ -67,16 +67,24 @@ def render_summary(
             "",
             f"Experiment ID: `{differential['experiment_id']}`",
             "",
-            "| Strategy | Status | Trades checked | Lifecycle | Final balances |",
-            "| --- | --- | ---: | --- | --- |",
+            "| Strategy | Status | Trades checked | Warnings |",
+            "| --- | --- | ---: | ---: |",
         ]
         lines.extend(
-            f"| {row['strategy']} | {row['status']} | {row['trade_count']} | passed | passed |"
+            f"| {row['strategy']} | {row['status']} | {row['trade_count']} | {len(row.get('warnings', []))} |"
             for row in differential["strategies"]
         )
+        warning_rows = [
+            row for row in differential["strategies"] if row.get("status") == "passed_with_warnings"
+        ]
+        if warning_rows:
+            lines += [
+                "",
+                "Warning-only results preserve identical trade counts, timestamps, and exit reasons. They record bounded rounding or supported intrabar stop-model differences in the artifact.",  # noqa: E501
+            ]
         lines += [
             "",
-            "This proves only the documented one-shot lifecycle and final-balance scope; it is not a general Freqtrade-equivalence claim.",  # noqa: E501
+            "This proves only the documented one-shot lifecycle and economically bounded final-balance scope; it is not a general Freqtrade-equivalence claim.",  # noqa: E501
         ]
     return "\n".join(lines) + "\n"
 
