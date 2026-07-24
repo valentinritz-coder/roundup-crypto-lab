@@ -1,4 +1,4 @@
-"""Validate seven-result, native-metadata, and differential consistency."""
+"""Validate active results, native metadata, and differential consistency."""
 
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ DIFFERENTIAL_SCHEMA_VERSION = "one-shot-differential/v1"
 
 def validate_result_set(results: list[dict[str, object]]) -> dict[str, Any]:
     if len(results) != len(STRATEGY_ORDER):
-        raise ValueError("exactly seven active results required")
+        raise ValueError(f"exactly {len(STRATEGY_ORDER)} active results required")
     for result in results:
         validate_active_result(result)
     experiments = [_mapping(result.get("experiment"), "experiment") for result in results]
@@ -59,14 +59,16 @@ def validate_differential(
     names = [row.get("strategy") for row in rows if isinstance(row, dict)]
     if names != list(STRATEGY_ORDER):
         raise ValueError("differential strategies must be complete and ordered")
-    allowed_statuses = {"passed", "passed_with_warnings"}
+    allowed_statuses = {"passed", "passed_with_warnings", "failed"}
     for row_value in rows:
         row = _mapping(row_value, "differential strategy")
-        if row.get("status") not in allowed_statuses:
-            raise ValueError("differential strategy did not pass")
-        warning_status = row.get("status") == "passed_with_warnings"
-        if warning_status and not isinstance(row.get("warnings"), list):
+        status = row.get("status")
+        if status not in allowed_statuses:
+            raise ValueError("differential strategy status is invalid")
+        if status == "passed_with_warnings" and not isinstance(row.get("warnings"), list):
             raise ValueError("warning differential must include warnings")
+        if status == "failed" and not isinstance(row.get("diagnostics"), dict):
+            raise ValueError("failed differential must include diagnostics")
         count = row.get("trade_count")
         if isinstance(count, bool) or not isinstance(count, int) or count < 0:
             raise ValueError("differential trade count is invalid")
