@@ -68,6 +68,10 @@ def test_single_scenario_workflow_remains_dispatchable_and_reusable() -> None:
     names = [step.get("name") for step in steps if isinstance(step, dict)]
     assert "Generate, validate, and summarize comparison" in names
     assert "Record scenario status" in names
-    upload = next(step for step in steps if step.get("uses") == "actions/upload-artifact@v4")
+    upload = next(
+        step
+        for step in steps
+        if step.get("uses") == "actions/upload-artifact@v4"
+    )
     assert upload["if"] == "always()"
     assert "inputs.artifact_name" in upload["with"]["name"]
