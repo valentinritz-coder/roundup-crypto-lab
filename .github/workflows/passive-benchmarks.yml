@@ -35,23 +35,26 @@ jobs:
         env: {TIMERANGE: '${{ inputs.timerange }}', INITIAL_CAPITAL: '${{ inputs.initial_capital }}', MONTHLY_BUDGET: '${{ inputs.monthly_budget }}', CONTRIBUTION_DAY: '${{ inputs.contribution_day }}', FEE: '${{ inputs.fee }}'}
         run: |
           python -m roundup_crypto_lab.passive_benchmarks --data-dir user_data/data/kraken --pairs BTC/EUR ETH/EUR --timeframe 4h --timerange "$TIMERANGE" --initial-capital "$INITIAL_CAPITAL" --monthly-budget "$MONTHLY_BUDGET" --contribution-day "$CONTRIBUTION_DAY" --weekly-day monday --fee "$FEE" --output-json artifacts/benchmarks/passive-benchmarks.json --output-dir artifacts/benchmarks |& tee artifacts/logs/passive-benchmarks.txt
-          python -c 'import json; json.load(open("artifacts/benchmarks/passive-benchmarks.json"))'
+          python -m roundup_crypto_lab.passive_cash_flow_reporting --input artifacts/benchmarks/passive-benchmarks.json --output artifacts/benchmarks/passive-benchmarks.json --output-dir artifacts/benchmarks
+          python -c 'import json; data=json.load(open("artifacts/benchmarks/passive-benchmarks.json")); assert data["schema_version"] == "passive-benchmarks/v2"'
       - name: Write Job Summary
         env: {TIMERANGE: '${{ inputs.timerange }}', INITIAL_CAPITAL: '${{ inputs.initial_capital }}', MONTHLY_BUDGET: '${{ inputs.monthly_budget }}', CONTRIBUTION_DAY: '${{ inputs.contribution_day }}', FEE: '${{ inputs.fee }}'}
         run: |
           python - <<'PY' | tee artifacts/benchmarks/job-summary.md >> "$GITHUB_STEP_SUMMARY"
           import json, os, platform
           from datetime import UTC, datetime
+          from decimal import Decimal
 
           data=json.load(open('artifacts/benchmarks/passive-benchmarks.json'))
           generated_at_utc = datetime.now(UTC).isoformat()
           print('# Passive benchmarks\n')
           print(f"- **Timerange:** `{os.environ['TIMERANGE']}`\n- **Timeframe:** `4h`\n- **Fee:** `{os.environ['FEE']}`\n- **Initial capital:** `{os.environ['INITIAL_CAPITAL']}`\n- **Monthly budget:** `{os.environ['MONTHLY_BUDGET']}`\n- **Contribution day:** `{os.environ['CONTRIBUTION_DAY']}`\n- **Commit SHA:** `${{ github.sha }}`\n- **Python:** `{platform.python_version()}`\n- **UTC:** `{generated_at_utc}`\n")
-          print('| Benchmark | Pair | Buys | Invested | Final value | Profit abs | Profit total % | Max drawdown % | Avg entry price |\n| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |')
+          print('| Benchmark | Pair | Buys | Final value | Profit | TWR | XIRR | Utilization | TWR drawdown | Raw drawdown | Fees |\n| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |')
           for row in data['benchmarks']:
-              average_entry = "N/A" if row['average_entry_price'] is None else f"{row['average_entry_price']:.2f}"
-              print(f"| {row['benchmark']} | {row['pair']} | {row['number_of_buys']} | {row['capital_invested']:.2f} | {row['final_value']:.2f} | {row['profit_total_abs']:.2f} | {row['profit_total']:.2%} | {row['max_drawdown_time_weighted']:.2%} | {average_entry} |")
-          print('\nDCA performance is measured against cumulative contributions. DCA drawdown is based on a contribution-neutral, time-weighted equity curve.\n\nThese benchmarks are passive references only and do not establish future profitability.')
+              metrics = row['cash_flow_metrics']
+              xirr = 'N/A' if metrics['money_weighted_return'] is None else f"{Decimal(metrics['money_weighted_return']):.2%}"
+              print(f"| {row['benchmark']} | {row['pair']} | {row['number_of_buys']} | {Decimal(metrics['final_value']):.2f} | {Decimal(metrics['profit_abs']):.2f} | {Decimal(metrics['time_weighted_return']):.2%} | {xirr} | {Decimal(metrics['capital_utilization_ratio']):.2%} | {Decimal(metrics['max_drawdown_time_weighted']):.2%} | {Decimal(metrics['max_drawdown_raw_portfolio']):.2%} | {Decimal(metrics['total_fees']):.2f} |")
+          print('\nTWR and time-weighted drawdown describe method performance without contribution timing. Final value, profit, and XIRR describe the investor outcome. XIRR uses terminal cash plus asset value net of one exit fee.\n\nThese benchmarks are passive references only and do not establish future profitability.')
           PY
       - if: always()
         uses: actions/upload-artifact@v4

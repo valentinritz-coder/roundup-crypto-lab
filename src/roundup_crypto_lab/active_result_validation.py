@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from roundup_crypto_lab.active_cash_flow_validation import validate_cash_flow_metrics
 from roundup_crypto_lab.active_common import (
     OPEN_POSITION_STATES,
     SCHEMA_VERSION,
@@ -84,6 +85,16 @@ def validate_active_result(payload: dict[str, object], **expected: object) -> No
         != neutral_drawdown
     ):
         raise ValueError("contribution-neutral drawdown differs")
+    validate_cash_flow_metrics(
+        payload.get("cash_flow_metrics"),
+        experiment=experiment,
+        schedule=schedule,
+        curve=curve,
+        fees=fees,
+        end=end,
+        neutral_return=neutral_return,
+        neutral_drawdown=neutral_drawdown,
+    )
     state = metrics.get("open_position_state")
     open_trades = [trade for trade in trades if trade["_exit_at"] is None]
     if state not in OPEN_POSITION_STATES:
