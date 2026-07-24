@@ -41,9 +41,12 @@ jobs:
         run: |
           python - <<'PY' | tee artifacts/benchmarks/job-summary.md >> "$GITHUB_STEP_SUMMARY"
           import json, os, platform
+          from datetime import UTC, datetime
+
           data=json.load(open('artifacts/benchmarks/passive-benchmarks.json'))
+          generated_at_utc = datetime.now(UTC).isoformat()
           print('# Passive benchmarks\n')
-          print(f"- **Timerange:** `{os.environ['TIMERANGE']}`\n- **Timeframe:** `4h`\n- **Fee:** `{os.environ['FEE']}`\n- **Initial capital:** `{os.environ['INITIAL_CAPITAL']}`\n- **Monthly budget:** `{os.environ['MONTHLY_BUDGET']}`\n- **Contribution day:** `{os.environ['CONTRIBUTION_DAY']}`\n- **Commit SHA:** `${{ github.sha }}`\n- **Python:** `{platform.python_version()}`\n- **UTC:** `{data['metadata']['generated_at_utc']}`\n")
+          print(f"- **Timerange:** `{os.environ['TIMERANGE']}`\n- **Timeframe:** `4h`\n- **Fee:** `{os.environ['FEE']}`\n- **Initial capital:** `{os.environ['INITIAL_CAPITAL']}`\n- **Monthly budget:** `{os.environ['MONTHLY_BUDGET']}`\n- **Contribution day:** `{os.environ['CONTRIBUTION_DAY']}`\n- **Commit SHA:** `${{ github.sha }}`\n- **Python:** `{platform.python_version()}`\n- **UTC:** `{generated_at_utc}`\n")
           print('| Benchmark | Pair | Buys | Invested | Final value | Profit abs | Profit total % | Max drawdown % | Avg entry price |\n| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |')
           for row in data['benchmarks']:
               average_entry = "N/A" if row['average_entry_price'] is None else f"{row['average_entry_price']:.2f}"
