@@ -38,6 +38,7 @@ jobs:
         env: {START_DATE: '${{ inputs.start_date }}'}
         run: |
           kraken-ohlcv-import seed.zip --datadir user_data/data/kraken --release-tag '${{ inputs.release_tag }}' --asset-name '${{ inputs.asset_name }}' --archive-sha256 '${{ inputs.archive_sha256 }}' --repository-commit "$GITHUB_SHA" --freqtrade-commit "$FREQTRADE_COMMIT" |& tee artifacts/logs/import.txt
+          python -m roundup_crypto_lab.repair_kraken_seed user_data/data/kraken |& tee artifacts/logs/synthetic-candles.txt
           python -m roundup_crypto_lab.kraken_seed_window user_data/data/kraken --start-date "$START_DATE" |& tee artifacts/logs/start-date-window.txt
       - name: Verify history and Freqtrade data
         env: {START_DATE: '${{ inputs.start_date }}'}
