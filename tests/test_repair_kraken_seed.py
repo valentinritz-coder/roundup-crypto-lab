@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from roundup_crypto_lab.kraken_ohlcv import import_dataset, write_feather
+from roundup_crypto_lab.kraken_ohlcv import write_feather
 from roundup_crypto_lab.repair_kraken_seed import repair_shared_single_candle_gaps
 
 
