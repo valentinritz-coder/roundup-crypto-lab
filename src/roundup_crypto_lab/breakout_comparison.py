@@ -34,28 +34,39 @@ def parse_timerange(value: str) -> tuple[date, date]:
 
 
 def validate_prepared_data(timerange: str, data_directory: Path) -> None:
-    """Require complete cached candles for the requested end-exclusive interval."""
+    """Require complete cached candles for the requested interval and warm-up."""
     requested_start_date, requested_end_date = parse_timerange(timerange)
-
-    # Preserve strict manifest, warm-up, and gap validation, but do not require the cache to
-    # contain the latest candle available *now*. During research, only candles read by the
-    # requested end-exclusive timerange matter.
-    strict_timerange = kraken_ohlcv._strict_timerange(data_directory)
-    available_start_date, _ = parse_timerange(strict_timerange)
     entries = kraken_ohlcv.load_and_verify_manifest(data_directory)["datasets"]
+
+    first_common_candle = max(
+        datetime.fromisoformat(entry["first_timestamp"]) for entry in entries
+    )
     last_common_candle = min(
         datetime.fromisoformat(entry["last_timestamp"]) for entry in entries
     )
-    available_start = datetime.combine(available_start_date, datetime.min.time(), tzinfo=UTC)
-    available_end_exclusive = last_common_candle + kraken_ohlcv.INTERVAL
     requested_start = datetime.combine(requested_start_date, datetime.min.time(), tzinfo=UTC)
     requested_end = datetime.combine(requested_end_date, datetime.min.time(), tzinfo=UTC)
-    if requested_start < available_start or requested_end > available_end_exclusive:
+    warmup_start = requested_start - kraken_ohlcv.INTERVAL * 480
+    available_end_exclusive = last_common_candle + kraken_ohlcv.INTERVAL
+
+    if warmup_start < first_common_candle or requested_end > available_end_exclusive:
         raise ValueError(
-            f"Requested {timerange} is outside prepared Kraken coverage "
-            f"{available_start.isoformat()}..{available_end_exclusive.isoformat()} "
-            "(end exclusive). Run Update Kraken data first."
+            f"Requested {timerange} with 480-candle warm-up is outside prepared Kraken "
+            f"coverage {first_common_candle.isoformat()}.."
+            f"{available_end_exclusive.isoformat()} (end exclusive). "
+            "Run Update Kraken data first."
         )
+
+    for entry in entries:
+        for gap in entry["missing_intervals"]:
+            gap_start, gap_end = (datetime.fromisoformat(value) for value in gap.split(".."))
+            if gap_end > warmup_start and gap_start < requested_end:
+                missing_candles = int((gap_end - gap_start) / kraken_ohlcv.INTERVAL) - 1
+                raise ValueError(
+                    "missing 4h interval intersects requested validation history: "
+                    f"pair={entry['pair']}, start={gap_start}, end={gap_end}, "
+                    f"missing_candles={missing_candles}"
+                )
 
 
 def validate_comparison(path: Path) -> list[dict[str, int | float | str]]:
