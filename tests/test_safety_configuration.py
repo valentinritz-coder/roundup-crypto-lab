@@ -44,7 +44,8 @@ def test_strategy_is_explicitly_long_only() -> None:
 def test_kraken_weekly_update_uses_bounded_public_ohlcv() -> None:
     workflow = WORKFLOW.read_text(encoding="utf-8")
 
-    assert "--days 8" in workflow
+    assert 'print(plan["days"])' in workflow
+    assert '--days "$DAYS"' in workflow
     assert "--dl-trades" not in workflow
     assert "--timerange" not in workflow
     assert "tmp-kraken-ohlcv" in workflow
