@@ -57,7 +57,8 @@ def test_seed_uses_non_strict_validation_and_post_update_workflows_remain_strict
     assert "common_timerange" not in seed
     assert "common_timerange" in update and "common_timerange" in validation
     assert "kraken_update_plan" in update and '--days "$DAYS"' in update
-    assert "historical_rebuild_required" in update
+    assert "plan_status=${PIPESTATUS[0]}" in update
+    assert 'if [ "$plan_status" -ne 0 ]' in update
     assert "Seed Kraken data" in update
     assert "--timerange" not in update and "--dl-trades" not in update
     assert "strftime('%Y%m%d')" not in update
