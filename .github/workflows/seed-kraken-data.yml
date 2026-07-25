@@ -6,6 +6,7 @@ on:
       asset_name: {description: Release asset name, required: false, default: kraken-btc-eth-eur-4h-seed.zip}
       archive_sha256: {description: SHA-256 of the release asset, required: true}
       seed_version: {description: Immutable seed version, required: true}
+      start_date: {description: Inclusive UTC history start in strict YYYYMMDD format, required: true, default: '20240401'}
 permissions: {contents: read}
 concurrency: {group: kraken-ohlcv-pipeline, cancel-in-progress: false}
 env: {FREQTRADE_VERSION: '2026.6', FREQTRADE_COMMIT: b604e2fd70539f7f73d3c62c16ce0b155bbab319}
@@ -33,12 +34,28 @@ jobs:
           mkdir -p artifacts/logs user_data/data/kraken
           gh release download '${{ inputs.release_tag }}' --repo '${{ github.repository }}' --pattern '${{ inputs.asset_name }}' --output seed.zip
           echo '${{ inputs.archive_sha256 }}  seed.zip' | sha256sum --check --strict
-      - name: Import official 4h OHLCVT data
-        run: kraken-ohlcv-import seed.zip --datadir user_data/data/kraken --release-tag '${{ inputs.release_tag }}' --asset-name '${{ inputs.asset_name }}' --archive-sha256 '${{ inputs.archive_sha256 }}' --repository-commit "$GITHUB_SHA" --freqtrade-commit "$FREQTRADE_COMMIT" |& tee artifacts/logs/import.txt
+      - name: Import official 4h OHLCVT data from requested date
+        env: {START_DATE: '${{ inputs.start_date }}'}
+        run: |
+          kraken-ohlcv-import seed.zip --datadir user_data/data/kraken --release-tag '${{ inputs.release_tag }}' --asset-name '${{ inputs.asset_name }}' --archive-sha256 '${{ inputs.archive_sha256 }}' --repository-commit "$GITHUB_SHA" --freqtrade-commit "$FREQTRADE_COMMIT" |& tee artifacts/logs/import.txt
+          python -m roundup_crypto_lab.kraken_seed_window user_data/data/kraken --start-date "$START_DATE" |& tee artifacts/logs/start-date-window.txt
       - name: Verify history and Freqtrade data
+        env: {START_DATE: '${{ inputs.start_date }}'}
         run: |
           freqtrade list-data --config user_data/config.json --show-timerange |& tee artifacts/logs/list-data.txt
           python -c 'from pathlib import Path; from roundup_crypto_lab.kraken_ohlcv import report_gaps, seed_history_timerange; path = Path("user_data/data/kraken"); report_gaps(path); print(seed_history_timerange(path))' | tee artifacts/seed-timerange.txt
+          python - <<'PY'
+          import os
+          from datetime import UTC, datetime
+          from pathlib import Path
+          import pandas as pd
+          start = datetime.strptime(os.environ["START_DATE"], "%Y%m%d").replace(tzinfo=UTC)
+          for pair in ("BTC_EUR", "ETH_EUR"):
+              path = Path("user_data/data/kraken") / f"{pair}-4h.feather"
+              first = pd.to_datetime(pd.read_feather(path)["date"], utc=True).iloc[0].to_pydatetime()
+              if first != start:
+                  raise SystemExit(f"{pair} starts at {first.isoformat()}, expected {start.isoformat()}")
+          PY
       - name: Verify cache contents
         run: |
           test "$(find user_data/data/kraken -maxdepth 1 -type f | wc -l)" -eq 3
@@ -47,7 +64,7 @@ jobs:
           test -f user_data/data/kraken/kraken-ohlcv-manifest.json
       - name: Save immutable prepared dataset
         uses: actions/cache/save@v4
-        with: {path: user_data/data/kraken, key: 'kraken-ohlcv-v1-${{ inputs.seed_version }}-${{ github.run_id }}'}
+        with: {path: user_data/data/kraken, key: 'kraken-ohlcv-v1-${{ inputs.seed_version }}-${{ inputs.start_date }}-${{ github.run_id }}'}
       - if: always()
         uses: actions/upload-artifact@v4
         with:
