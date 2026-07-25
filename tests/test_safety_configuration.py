@@ -41,9 +41,13 @@ def test_strategy_is_explicitly_long_only() -> None:
     assert ".rolling(20).max().shift(1)" in strategy
 
 
-def test_kraken_history_download_uses_public_trades() -> None:
+def test_kraken_weekly_update_uses_bounded_public_ohlcv() -> None:
     workflow = WORKFLOW.read_text(encoding="utf-8")
 
-    assert "--dl-trades" in workflow
-    assert "--days 8" in workflow
+    assert 'print(plan["days"])' in workflow
+    assert '--days "$DAYS"' in workflow
+    assert "--dl-trades" not in workflow
+    assert "--timerange" not in workflow
+    assert "tmp-kraken-ohlcv" in workflow
+    assert "tmp-kraken-trades" not in workflow
     assert "--erase" not in workflow

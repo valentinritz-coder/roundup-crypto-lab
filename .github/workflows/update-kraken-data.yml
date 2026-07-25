@@ -28,19 +28,31 @@ jobs:
           python -m pip install --no-deps -e .freqtrade-src
           python -m pip install --no-deps -e .freqtrade-src/ft_client
           python -m pip check
-      - name: Catch up missing history or download weekly overlap
+      - name: Plan bounded weekly OHLCV update
         run: |
-          mkdir -p artifacts/logs tmp-kraken-trades
-          # Normal maintenance request is --days 8; older caches use deterministic --timerange catch-up.
-          REQUEST=$(python -c 'from pathlib import Path; from roundup_crypto_lab.kraken_ohlcv import update_request; print(update_request(Path("user_data/data/kraken")))')
+          mkdir -p artifacts/logs
           python -c 'from pathlib import Path; from roundup_crypto_lab.kraken_ohlcv import report_gaps; report_gaps(Path("user_data/data/kraken"))' | tee artifacts/gaps-before-update.txt
-          echo "selected Update download start / Freqtrade option: $REQUEST" | tee -a artifacts/update-request.txt
-          echo "download request: $REQUEST" | tee -a artifacts/update-request.txt
-          freqtrade download-data --config user_data/config.json --datadir tmp-kraken-trades --pairs BTC/EUR ETH/EUR $REQUEST --timeframes 4h --dl-trades |& tee artifacts/logs/download.txt
-          # Project merge code must preserve seeded history; Freqtrade never writes user_data/data/kraken here.
-          python -m roundup_crypto_lab.merge_kraken_data user_data/data/kraken tmp-kraken-trades --repository-commit "$GITHUB_SHA" --freqtrade-version "$FREQTRADE_VERSION" --freqtrade-commit "$FREQTRADE_COMMIT" |& tee artifacts/logs/merge.txt
+          set +e
+          python -m roundup_crypto_lab.kraken_update_plan user_data/data/kraken --output artifacts/update-plan.json | tee artifacts/logs/update-plan.txt
+          plan_status=${PIPESTATUS[0]}
+          set -e
+          cat artifacts/update-plan.json >> "$GITHUB_STEP_SUMMARY"
+          if [ "$plan_status" -ne 0 ]; then
+            reason=$(python -c 'import json; print(json.load(open("artifacts/update-plan.json"))["reason"])')
+            echo "::error::$reason. Run Seed Kraken data instead of reconstructing trades in the weekly workflow."
+            exit "$plan_status"
+          fi
+      - name: Download recent Kraken OHLCV overlap
+        timeout-minutes: 20
+        run: |
+          mkdir -p tmp-kraken-ohlcv
+          DAYS=$(python -c 'import json; plan=json.load(open("artifacts/update-plan.json")); assert plan["mode"] == "recent_overlap"; print(plan["days"])')
+          echo "download request: --days $DAYS (direct OHLCV, no trade backfill)" | tee artifacts/update-request.txt
+          freqtrade download-data --config user_data/config.json --datadir tmp-kraken-ohlcv --pairs BTC/EUR ETH/EUR --days "$DAYS" --timeframes 4h |& tee artifacts/logs/download.txt
+          # Project merge code preserves seeded history; Freqtrade never writes the prepared cache directly.
+          python -m roundup_crypto_lab.merge_kraken_data user_data/data/kraken tmp-kraken-ohlcv --repository-commit "$GITHUB_SHA" --freqtrade-version "$FREQTRADE_VERSION" --freqtrade-commit "$FREQTRADE_COMMIT" |& tee artifacts/logs/merge.txt
           python -c 'from pathlib import Path; from roundup_crypto_lab.kraken_ohlcv import common_timerange, load_and_verify_manifest; load_and_verify_manifest(Path("user_data/data/kraken")); print(common_timerange(Path("user_data/data/kraken")))' | tee artifacts/update-timerange.txt
-          rm -rf tmp-kraken-trades
+          rm -rf tmp-kraken-ohlcv
       - uses: actions/cache/save@v4
         with: {path: user_data/data/kraken, key: 'kraken-ohlcv-v1-update-${{ github.run_id }}'}
       - if: always()
