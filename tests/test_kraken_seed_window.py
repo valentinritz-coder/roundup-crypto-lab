@@ -62,7 +62,10 @@ def test_seed_window_trims_both_pairs_and_updates_manifest(tmp_path: Path) -> No
         assert first == datetime(2024, 4, 1, tzinfo=UTC)
     saved = json.loads((tmp_path / "kraken-ohlcv-manifest.json").read_text())
     assert saved["requested_start_date"] == "20240401"
-    assert all(row["first_timestamp"].startswith("2024-04-01T00:00:00") for row in saved["datasets"])
+    assert all(
+        row["first_timestamp"].startswith("2024-04-01T00:00:00")
+        for row in saved["datasets"]
+    )
 
 
 def test_seed_window_rejects_pair_starting_after_request(tmp_path: Path) -> None:
