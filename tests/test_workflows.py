@@ -40,7 +40,9 @@ def test_workflow_safety_contract() -> None:
         content(x)
         for x in ("seed-kraken-data.yml", "update-kraken-data.yml", "freqtrade-validation.yml")
     )
-    assert "--days 8" in update and "--dl-trades" in update
+    assert "--days 8" in update
+    assert "--dl-trades" not in update and "--timerange" not in update
+    assert "tmp-kraken-ohlcv" in update and "tmp-kraken-trades" not in update
     assert "BTC/EUR ETH/EUR" in update and "--timeframes 4h" in update
     assert "Changing state.*RUNNING" in validation and "PIPESTATUS" not in validation
     assert "path: |\n            artifacts/" in seed
@@ -54,7 +56,10 @@ def test_seed_uses_non_strict_validation_and_post_update_workflows_remain_strict
     assert "seed_history_timerange" in seed and "report_gaps" in seed
     assert "common_timerange" not in seed
     assert "common_timerange" in update and "common_timerange" in validation
-    assert "--timerange" in update and "--days 8" in update
+    assert "kraken_update_plan" in update and "--days 8" in update
+    assert "historical_rebuild_required" in update
+    assert "Seed Kraken data" in update
+    assert "--timerange" not in update and "--dl-trades" not in update
     assert "strftime('%Y%m%d')" not in update
     assert all("python -m pip check" in text for text in (seed, update, validation))
 
