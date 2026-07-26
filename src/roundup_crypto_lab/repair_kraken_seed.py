@@ -1,4 +1,4 @@
-"""Repair shared one-candle gaps in imported Kraken 4h OHLCV seed data."""
+"""Repair isolated one-candle gaps in imported Kraken 4h OHLCV seed data."""
 
 from __future__ import annotations
 
@@ -24,7 +24,11 @@ def _single_candle_gaps(frame: pd.DataFrame) -> set[pd.Timestamp]:
 
 
 def repair_shared_single_candle_gaps(datadir: Path) -> list[dict]:
-    """Fill gaps shared by every supported pair using the previous close and zero volume."""
+    """Fill each pair's isolated one-candle gaps using the previous close and zero volume.
+
+    The public function name is kept for compatibility with existing callers. Gaps are repaired
+    independently per pair; wider gaps remain untouched and visible in the manifest.
+    """
     frames: dict[str, pd.DataFrame] = {}
     gaps_by_pair: dict[str, set[pd.Timestamp]] = {}
     for pair in REQUIRED.values():
@@ -37,11 +41,10 @@ def repair_shared_single_candle_gaps(datadir: Path) -> list[dict]:
         frames[pair] = frame
         gaps_by_pair[pair] = _single_candle_gaps(frame)
 
-    shared = set.intersection(*gaps_by_pair.values()) if gaps_by_pair else set()
     synthetic: list[dict] = []
     for pair, frame in frames.items():
         additions = []
-        for timestamp in sorted(shared):
+        for timestamp in sorted(gaps_by_pair[pair]):
             previous = frame.loc[frame["date"] < timestamp].iloc[-1]
             close = float(previous["close"])
             additions.append(
@@ -59,7 +62,7 @@ def repair_shared_single_candle_gaps(datadir: Path) -> list[dict]:
                     "pair": pair,
                     "timestamp": timestamp.isoformat(),
                     "method": "previous_close_zero_volume",
-                    "source": "shared_single_candle_gap",
+                    "source": "pair_specific_single_candle_gap",
                 }
             )
         if additions:
