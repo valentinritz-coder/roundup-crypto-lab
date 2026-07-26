@@ -34,7 +34,12 @@ def add_months(value: datetime, months: int) -> datetime:
     return value.replace(year=year, month=month, day=day)
 
 
-def generate_windows(start: datetime, end: datetime, window_months: int, step_months: int) -> list[dict[str, str]]:
+def generate_windows(
+    start: datetime,
+    end: datetime,
+    window_months: int,
+    step_months: int,
+) -> list[dict[str, str]]:
     if start >= end:
         raise ValueError("start date must precede end date")
     if window_months <= 0 or step_months <= 0:
@@ -90,7 +95,7 @@ def summarize_window(active_path: Path, passive_path: Path) -> dict[str, Any]:
     active = json.loads(active_path.read_text(encoding="utf-8"))
     passive = json.loads(passive_path.read_text(encoding="utf-8"))
     row = _active_row(active)
-    benchmarks = {item["name"]: item for item in passive["benchmarks"]}
+    benchmarks = {item["benchmark"]: item for item in passive["benchmarks"]}
     for name in DCA_NAMES:
         if name not in benchmarks:
             raise ValueError(f"missing passive benchmark: {name}")
@@ -110,7 +115,12 @@ def summarize_window(active_path: Path, passive_path: Path) -> dict[str, Any]:
     return row
 
 
-def aggregate(window_dir: Path, output_json: Path, output_csv: Path, summary_path: Path) -> dict[str, Any]:
+def aggregate(
+    window_dir: Path,
+    output_json: Path,
+    output_csv: Path,
+    summary_path: Path,
+) -> dict[str, Any]:
     rows = []
     for directory in sorted(path for path in window_dir.iterdir() if path.is_dir()):
         active = directory / "active-keradx.json"
@@ -121,21 +131,29 @@ def aggregate(window_dir: Path, output_json: Path, output_csv: Path, summary_pat
         raise ValueError("no complete rolling-window results found")
     differences = [_decimal(row["keradx_minus_monthly_dca"]) for row in rows]
     drawdown_improvements = [
-        _decimal(row["monthly_dca_max_drawdown"]) - _decimal(row["keradx_max_drawdown"])
+        _decimal(row["monthly_dca_max_drawdown"])
+        - _decimal(row["keradx_max_drawdown"])
         for row in rows
     ]
     payload = {
         "schema_version": "rolling-keradx-dca-comparison/v1",
         "strategy": STRATEGY,
         "window_count": len(rows),
-        "keradx_final_value_wins": sum(bool(row["keradx_wins_final_value"]) for row in rows),
-        "keradx_drawdown_wins": sum(bool(row["keradx_wins_drawdown"]) for row in rows),
+        "keradx_final_value_wins": sum(
+            bool(row["keradx_wins_final_value"]) for row in rows
+        ),
+        "keradx_drawdown_wins": sum(
+            bool(row["keradx_wins_drawdown"]) for row in rows
+        ),
         "median_final_value_difference": str(median(differences)),
         "median_drawdown_improvement": str(median(drawdown_improvements)),
         "windows": rows,
     }
     output_json.parent.mkdir(parents=True, exist_ok=True)
-    output_json.write_text(json.dumps(payload, indent=2, allow_nan=False) + "\n", encoding="utf-8")
+    output_json.write_text(
+        json.dumps(payload, indent=2, allow_nan=False) + "\n",
+        encoding="utf-8",
+    )
     with output_csv.open("w", newline="", encoding="utf-8") as handle:
         writer = csv.DictWriter(handle, fieldnames=list(rows[0]))
         writer.writeheader()
@@ -144,10 +162,14 @@ def aggregate(window_dir: Path, output_json: Path, output_csv: Path, summary_pat
     summary = (
         "# Rolling KerADX versus DCA\n\n"
         f"- Windows tested: **{count}**\n"
-        f"- KerADX beats monthly DCA on final value: **{payload['keradx_final_value_wins']} / {count}**\n"
-        f"- KerADX beats monthly DCA on max drawdown: **{payload['keradx_drawdown_wins']} / {count}**\n"
-        f"- Median final-value difference: **{payload['median_final_value_difference']} EUR**\n"
-        f"- Median drawdown improvement: **{payload['median_drawdown_improvement']}**\n"
+        "- KerADX beats monthly DCA on final value: "
+        f"**{payload['keradx_final_value_wins']} / {count}**\n"
+        "- KerADX beats monthly DCA on max drawdown: "
+        f"**{payload['keradx_drawdown_wins']} / {count}**\n"
+        "- Median final-value difference: "
+        f"**{payload['median_final_value_difference']} EUR**\n"
+        "- Median drawdown improvement: "
+        f"**{payload['median_drawdown_improvement']}**\n"
     )
     summary_path.write_text(summary, encoding="utf-8")
     return payload
@@ -176,7 +198,10 @@ def main() -> None:
             args.step_months,
         )
         args.output.parent.mkdir(parents=True, exist_ok=True)
-        args.output.write_text(json.dumps(windows, indent=2) + "\n", encoding="utf-8")
+        args.output.write_text(
+            json.dumps(windows, indent=2) + "\n",
+            encoding="utf-8",
+        )
     else:
         aggregate(args.window_dir, args.output_json, args.output_csv, args.summary)
 
