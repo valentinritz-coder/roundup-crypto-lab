@@ -58,7 +58,7 @@ def _manifest(datadir: Path) -> None:
     )
 
 
-def test_repairs_only_shared_single_candle_gaps(tmp_path: Path) -> None:
+def test_repairs_shared_single_candle_gaps(tmp_path: Path) -> None:
     base = datetime(2025, 1, 1, tzinfo=UTC)
     candles = _candles(base)
     for pair in ("BTC/EUR", "ETH/EUR"):
@@ -83,13 +83,54 @@ def test_repairs_only_shared_single_candle_gaps(tmp_path: Path) -> None:
     assert all(not item["missing_intervals"] for item in manifest["datasets"])
 
 
-def test_does_not_repair_pair_specific_gap(tmp_path: Path) -> None:
+def test_repairs_pair_specific_single_candle_gap(tmp_path: Path) -> None:
     base = datetime(2025, 1, 1, tzinfo=UTC)
     candles = _candles(base)
     write_feather(candles[:2] + candles[3:], tmp_path, "BTC/EUR")
     write_feather(candles, tmp_path, "ETH/EUR")
     _manifest(tmp_path)
 
+    repaired = repair_shared_single_candle_gaps(tmp_path)
+
+    assert repaired == [
+        {
+            "pair": "BTC/EUR",
+            "timestamp": candles[2][0].isoformat(),
+            "method": "previous_close_zero_volume",
+            "source": "pair_specific_single_candle_gap",
+        }
+    ]
+    btc = pd.read_feather(tmp_path / "BTC_EUR-4h.feather")
+    btc["date"] = pd.to_datetime(btc["date"], utc=True)
+    row = btc.loc[btc["date"] == candles[2][0]].iloc[0]
+    assert row["open"] == candles[1][4]
+    assert row["high"] == candles[1][4]
+    assert row["low"] == candles[1][4]
+    assert row["close"] == candles[1][4]
+    assert row["volume"] == 0
+
+    eth = pd.read_feather(tmp_path / "ETH_EUR-4h.feather")
+    assert len(eth) == len(candles)
+
+    manifest = json.loads((tmp_path / "kraken-ohlcv-manifest.json").read_text())
+    btc_manifest = next(item for item in manifest["datasets"] if item["pair"] == "BTC/EUR")
+    eth_manifest = next(item for item in manifest["datasets"] if item["pair"] == "ETH/EUR")
+    assert btc_manifest["synthetic_candles"] == repaired
+    assert eth_manifest["synthetic_candles"] == []
+    assert btc_manifest["missing_intervals"] == []
+
+
+def test_does_not_repair_multi_candle_gap(tmp_path: Path) -> None:
+    base = datetime(2025, 1, 1, tzinfo=UTC)
+    candles = _candles(base)
+    write_feather(candles[:1] + candles[3:], tmp_path, "BTC/EUR")
+    write_feather(candles, tmp_path, "ETH/EUR")
+    _manifest(tmp_path)
+
     assert repair_shared_single_candle_gaps(tmp_path) == []
     btc = pd.read_feather(tmp_path / "BTC_EUR-4h.feather")
-    assert len(btc) == 4
+    assert len(btc) == 3
+
+    manifest = json.loads((tmp_path / "kraken-ohlcv-manifest.json").read_text())
+    btc_manifest = next(item for item in manifest["datasets"] if item["pair"] == "BTC/EUR")
+    assert btc_manifest["missing_intervals"]
