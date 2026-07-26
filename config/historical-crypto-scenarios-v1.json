@@ -1,8 +1,8 @@
 {
   "schema_version": "historical-crypto-scenarios/v1",
-  "registry_id": "historical-one-shot-2024-2026-v1",
-  "frozen_at_utc": "2026-07-24T00:00:00Z",
-  "selection_policy": "Windows and parameters were fixed before the campaign results were inspected. Any later change requires a new registry version and a documented rationale.",
+  "registry_id": "historical-one-shot-2024-2026-v2",
+  "frozen_at_utc": "2026-07-26T00:00:00Z",
+  "selection_policy": "Windows and parameters were fixed before the campaign results were inspected. This v2 registry extends the final predeclared window only to the last complete month available in the frozen seed, ending exclusively at 2026-04-01. Any later change requires a new registry version and a documented rationale.",
   "scenarios": [
     {
       "scenario_id": "btc-20240401-20241001-one-shot-v1",
@@ -41,10 +41,10 @@
       "regime_label": "historical-window-3"
     },
     {
-      "scenario_id": "btc-20251001-20260125-one-shot-v1",
+      "scenario_id": "btc-20251001-20260401-one-shot-v2",
       "pair": "BTC/EUR",
       "timeframe": "4h",
-      "timerange": "20251001-20260125",
+      "timerange": "20251001-20260401",
       "capital_mode": "one_shot_capital",
       "initial_capital": "40",
       "monthly_budget": "40",
@@ -89,10 +89,10 @@
       "regime_label": "historical-window-3"
     },
     {
-      "scenario_id": "eth-20251001-20260125-one-shot-v1",
+      "scenario_id": "eth-20251001-20260401-one-shot-v2",
       "pair": "ETH/EUR",
       "timeframe": "4h",
-      "timerange": "20251001-20260125",
+      "timerange": "20251001-20260401",
       "capital_mode": "one_shot_capital",
       "initial_capital": "40",
       "monthly_budget": "40",
