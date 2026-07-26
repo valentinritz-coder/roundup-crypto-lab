@@ -18,7 +18,7 @@ def registry_payload() -> dict[str, object]:
 
 def test_frozen_registry_contains_eight_expected_scenarios() -> None:
     registry = load_registry()
-    assert registry.registry_id == "historical-one-shot-2024-2026-v1"
+    assert registry.registry_id == "historical-one-shot-2024-2026-v2"
     assert len(registry.scenarios) == 8
     assert {scenario.pair for scenario in registry.scenarios} == {"BTC/EUR", "ETH/EUR"}
     assert {scenario.timeframe for scenario in registry.scenarios} == {"4h"}
@@ -29,7 +29,7 @@ def test_frozen_registry_contains_eight_expected_scenarios() -> None:
         "20240401-20241001",
         "20241001-20250401",
         "20250401-20251001",
-        "20251001-20260125",
+        "20251001-20260401",
     }
 
 
