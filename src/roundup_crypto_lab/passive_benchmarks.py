@@ -14,6 +14,15 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
+from roundup_crypto_lab.dca_baselines import (
+    DEFAULT_STRATEGY_REGISTRY,
+    baseline_name,
+    deploy_registered_baseline,
+    deployment_method,
+    registered_baselines,
+    strategy_metadata,
+)
+from roundup_crypto_lab.dca_registry import load_registry
 from roundup_crypto_lab.deployment_engine import (
     INTERVAL,
     PURCHASE_LEDGER_FIELDS,
@@ -22,7 +31,6 @@ from roundup_crypto_lab.deployment_engine import (
     DeploymentBucket,
     build_result,
     candle_metadata,
-    deploy,
     deployment_buckets,
     load_kraken_candles,
     number,
@@ -65,14 +73,21 @@ def run_passive_benchmarks(
     fee: Decimal | str = Decimal("0.004"),
     contribution_day: int = 23,
     weekly_day: str = "monday",
+    registry_path: Path = DEFAULT_STRATEGY_REGISTRY,
 ) -> dict[str, Any]:
-    """Run identically funded passive deployment methods on local prepared data."""
+    """Run identically funded registered passive deployment strategies."""
     start, end = parse_timerange(timerange)
     plan = InvestmentPlan(initial_capital, monthly_budget, fee, contribution_day)
     if weekly_day.lower() not in WEEKDAYS:
         raise ValueError(f"weekly day must be one of: {', '.join(WEEKDAYS)}")
     if not pairs:
         raise ValueError("at least one pair is required")
+    registry = load_registry(registry_path)
+    definitions = registered_baselines(
+        registry,
+        include_immediate=True,
+        include_monthly=False,
+    )
     events = contribution_schedule(plan, start, end)
     schedule_metadata = [
         {
@@ -83,18 +98,35 @@ def run_passive_benchmarks(
         for event in events
     ]
     benchmarks, pair_metadata = [], {}
-    methods = (
-        ("BuyAndHold", "immediate"),
-        ("DailyDCA", "daily_dca"),
-        ("WeeklyDCA", "weekly_dca"),
-    )
     for pair in pairs:
         candles = load_kraken_candles(data_dir, pair, timeframe, timerange)
         pair_metadata[pair] = candle_metadata(candles, timerange)
-        for name, method in methods:
-            purchases = deploy(plan, events, candles, method, WEEKDAYS[weekly_day.lower()])
-            result = build_result(name, pair, candles, events, purchases)
-            result["deployment_method"] = method
+        for definition in definitions:
+            overrides = (
+                {"weekday": WEEKDAYS[weekly_day.lower()]}
+                if definition.implementation == "fixed_weekly"
+                else None
+            )
+            purchases = deploy_registered_baseline(
+                plan,
+                events,
+                candles,
+                definition,
+                parameter_overrides=overrides,
+            )
+            result = build_result(
+                baseline_name(definition),
+                pair,
+                candles,
+                events,
+                purchases,
+            )
+            result["deployment_method"] = deployment_method(definition)
+            result["strategy"] = strategy_metadata(
+                registry,
+                definition,
+                parameter_overrides=overrides,
+            )
             result["contribution_schedule"] = schedule_metadata
             benchmarks.append(result)
     total = sum((event.amount for event in events), Decimal("0"))
@@ -111,6 +143,11 @@ def run_passive_benchmarks(
             "contribution_schedule": schedule_metadata,
             "total_contributions": number(total),
             "pair_candle_coverage": pair_metadata,
+            "strategy_registry": {
+                "registry_schema_version": registry.registry_schema_version,
+                "registry_id": registry.registry_id,
+                "registry_digest": registry.digest,
+            },
         },
         "benchmarks": benchmarks,
     }
@@ -128,7 +165,6 @@ def write_details(result: dict[str, Any], output_dir: Path) -> None:
             ("equity", benchmark["equity_curve"]),
             ("purchase-ledger", benchmark["purchase_ledger"]),
         ):
-            # A header-only ledger is still an artifact for a run with no eligible buys.
             fieldnames = list(rows[0]) if rows else PURCHASE_LEDGER_FIELDS
             with (output_dir / f"{stem}-{suffix}.csv").open(
                 "w", newline="", encoding="utf-8"
@@ -149,6 +185,11 @@ def main() -> None:
     parser.add_argument("--monthly-budget", default="40")
     parser.add_argument("--contribution-day", type=int, default=23)
     parser.add_argument("--weekly-day", default="monday")
+    parser.add_argument(
+        "--strategy-registry",
+        type=Path,
+        default=DEFAULT_STRATEGY_REGISTRY,
+    )
     parser.add_argument("--output-json", required=True, type=Path)
     parser.add_argument("--output-dir", type=Path)
     legacy_options = ("--daily-contribution", "--weekly-contribution")
@@ -171,6 +212,7 @@ def main() -> None:
         args.fee,
         args.contribution_day,
         args.weekly_day,
+        args.strategy_registry,
     )
     args.output_json.parent.mkdir(parents=True, exist_ok=True)
     args.output_json.write_text(
