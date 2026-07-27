@@ -45,6 +45,11 @@ class ImplementationSpec:
     ordered_thresholds: tuple[tuple[str, str], ...] = ()
 
 
+_FRACTION = ParameterSpec("decimal", minimum=Decimal("0"), maximum=Decimal("1"))
+_POSITIVE_MULTIPLIER = ParameterSpec(
+    "decimal", minimum=Decimal("0"), maximum=Decimal("4")
+)
+
 IMPLEMENTATION_SPECS: Mapping[str, ImplementationSpec] = MappingProxyType(
     {
         "fixed_daily": ImplementationSpec(
@@ -64,6 +69,70 @@ IMPLEMENTATION_SPECS: Mapping[str, ImplementationSpec] = MappingProxyType(
             decision_cadences=frozenset({"monthly"}),
             parameters=MappingProxyType({}),
         ),
+        "immediate_floor_drawdown_reserve": ImplementationSpec(
+            identity="roundup_crypto_lab.dca.immediate_floor_drawdown_reserve@1",
+            decision_cadences=frozenset({"every_candle"}),
+            parameters=MappingProxyType(
+                {
+                    "immediate_floor_fraction": _FRACTION,
+                    "tier_1_drawdown": _FRACTION,
+                    "tier_1_release_fraction": _FRACTION,
+                    "tier_2_drawdown": _FRACTION,
+                    "tier_2_release_fraction": _FRACTION,
+                    "tier_3_drawdown": _FRACTION,
+                    "tier_3_release_fraction": _FRACTION,
+                }
+            ),
+            required_indicator_names=("rolling_drawdown",),
+            ordered_thresholds=(
+                ("tier_1_drawdown", "tier_2_drawdown"),
+                ("tier_2_drawdown", "tier_3_drawdown"),
+                ("tier_1_release_fraction", "tier_2_release_fraction"),
+                ("tier_2_release_fraction", "tier_3_release_fraction"),
+            ),
+        ),
+        "no_sell_value_averaging": ImplementationSpec(
+            identity="roundup_crypto_lab.dca.no_sell_value_averaging@1",
+            decision_cadences=frozenset({"every_candle"}),
+            parameters=MappingProxyType(
+                {
+                    "minimum_new_contribution_fraction": _FRACTION,
+                    "target_value_multiplier": ParameterSpec(
+                        "decimal", minimum=Decimal("0.5"), maximum=Decimal("2")
+                    ),
+                }
+            ),
+        ),
+        "moving_average_deviation": ImplementationSpec(
+            identity="roundup_crypto_lab.dca.moving_average_deviation@1",
+            decision_cadences=frozenset({"daily"}),
+            parameters=MappingProxyType(
+                {
+                    "above_ma_multiplier": _POSITIVE_MULTIPLIER,
+                    "above_ma_threshold": _FRACTION,
+                    "base_allocation_fraction": _FRACTION,
+                    "below_ma_multiplier": _POSITIVE_MULTIPLIER,
+                    "below_ma_threshold": _FRACTION,
+                    "neutral_multiplier": _POSITIVE_MULTIPLIER,
+                }
+            ),
+            required_indicator_names=("long_ma", "previous_close"),
+        ),
+        "ker_adx_accumulation": ImplementationSpec(
+            identity="roundup_crypto_lab.dca.ker_adx_accumulation@1",
+            decision_cadences=frozenset({"every_candle"}),
+            parameters=MappingProxyType(
+                {
+                    "accelerated_release_fraction": _FRACTION,
+                    "adx_threshold": ParameterSpec(
+                        "decimal", minimum=Decimal("0"), maximum=Decimal("100")
+                    ),
+                    "immediate_floor_fraction": _FRACTION,
+                    "ker_threshold": _FRACTION,
+                }
+            ),
+            required_indicator_names=("adx_14", "ker_20"),
+        ),
         # Registry-only fixture for proving strict indicator and threshold validation.
         # It is deliberately not dynamically imported or exposed as an executable strategy.
         "indicator_band_fixture": ImplementationSpec(
@@ -71,9 +140,7 @@ IMPLEMENTATION_SPECS: Mapping[str, ImplementationSpec] = MappingProxyType(
             decision_cadences=frozenset({"every_candle"}),
             parameters=MappingProxyType(
                 {
-                    "allocation_fraction": ParameterSpec(
-                        "decimal", minimum=Decimal("0"), maximum=Decimal("1")
-                    ),
+                    "allocation_fraction": _FRACTION,
                     "lower_threshold": ParameterSpec("decimal"),
                     "upper_threshold": ParameterSpec("decimal"),
                 }
