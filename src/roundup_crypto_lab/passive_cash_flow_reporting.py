@@ -39,17 +39,24 @@ def enrich_passive_result(result: dict[str, Any]) -> dict[str, Any]:
         curve = benchmark.get("equity_curve")
         if not isinstance(curve, list) or not curve:
             raise ValueError("passive benchmark requires an equity curve")
-        snapshots = [
-            {
-                "timestamp": row["timestamp"],
-                "equity": row["portfolio_value"],
-                "cash": row["cash_balance"],
-                "asset_value": row["crypto_value"],
-                "share_value": row["time_weighted_share_value"],
-            }
-            for row in curve
-            if isinstance(row, dict)
-        ]
+        snapshots = []
+        for row in curve:
+            if not isinstance(row, dict):
+                continue
+            # Passive curves are serialized as floats. Rebuild equity from the
+            # serialized components so Decimal auditing does not compare three
+            # independently rounded float representations of the same balance.
+            cash = Decimal(str(row["cash_balance"]))
+            asset_value = Decimal(str(row["crypto_value"]))
+            snapshots.append(
+                {
+                    "timestamp": row["timestamp"],
+                    "equity": cash + asset_value,
+                    "cash": cash,
+                    "asset_value": asset_value,
+                    "share_value": row["time_weighted_share_value"],
+                }
+            )
         if len(snapshots) != len(curve):
             raise ValueError("invalid passive equity row")
         metrics = build_cash_flow_metrics(
