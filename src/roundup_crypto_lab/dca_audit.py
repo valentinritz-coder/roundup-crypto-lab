@@ -115,9 +115,11 @@ def validate_decision_ledger(records: object) -> list[dict[str, Any]]:
     return records
 
 
-# The residual-safe implementation resolves this global at call time, so patch
-# its validator once and keep the public module compact.
+# The residual-safe implementation and the original CSV writer both resolve
+# their validator at call time. Patch both globals so JSON validation and CSV
+# export enforce exactly the same accounting boundary.
 _base.validate_decision_ledger = validate_decision_ledger
+_base._impl.validate_decision_ledger = validate_decision_ledger
 
 state_digest = _base.state_digest
 build_baseline_decision_ledger = _base.build_baseline_decision_ledger
