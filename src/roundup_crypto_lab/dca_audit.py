@@ -22,6 +22,26 @@ def _balance(value: Decimal, message: str) -> Decimal:
     return Decimal("0") if abs(value) <= _ACCOUNTING_EPSILON else value
 
 
+_ORIGINAL_CANONICAL_DECIMAL = _base._impl._canonical_decimal
+
+
+def _canonical_decimal(
+    value: object, name: str, *, allow_negative: bool = False
+) -> str:
+    number = _base._impl._decimal(value, name, allow_negative=allow_negative)
+    is_ratio = name == "deployment ratio" or name.endswith("-day deployment")
+    if is_ratio and Decimal("1") < number <= Decimal("1") + _ACCOUNTING_EPSILON:
+        number = Decimal("1")
+    return _ORIGINAL_CANONICAL_DECIMAL(
+        number, name, allow_negative=allow_negative
+    )
+
+
+# Metric construction resolves the canonicalizer through the implementation
+# module, so install the ratio-safe boundary before any result is enriched.
+_base._impl._canonical_decimal = _canonical_decimal
+
+
 def validate_decision_ledger(records: object) -> list[dict[str, Any]]:
     """Reject malformed ledgers while canonicalizing only sub-quantum residue."""
     if not isinstance(records, list) or not records:
