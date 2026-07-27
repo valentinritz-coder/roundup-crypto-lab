@@ -46,7 +46,7 @@ jobs:
         if: steps.restore.outputs.cache-hit != ''
         run: |
           mkdir -p artifacts/logs artifacts/results
-          python -c 'from pathlib import Path; from roundup_crypto_lab.kraken_ohlcv import common_timerange; print(common_timerange(Path("user_data/data/kraken")))' | tee artifacts/timerange.txt
+          python -c 'from pathlib import Path; from roundup_crypto_lab.kraken_ohlcv import common_timerange; print(common_timerange(Path("user_data/data/kraken")))' |& tee artifacts/timerange.txt
           freqtrade list-data --config user_data/config.json --show-timerange |& tee artifacts/logs/list-data.txt
       - name: Discover strategy and configuration
         if: steps.restore.outputs.cache-hit != ''
@@ -91,5 +91,11 @@ jobs:
           if ! grep -Eq 'Changing state.*RUNNING' artifacts/logs/smoke.txt; then cat artifacts/logs/smoke.txt; echo 'Dry-run smoke test did not reach RUNNING.'; exit 1; fi
       - if: always()
         uses: actions/upload-artifact@v4
-        with: {name: 'freqtrade-validation-${{ github.run_id }}', path: artifacts/, if-no-files-found: warn, retention-days: 30}
+        with:
+          name: 'freqtrade-validation-${{ github.run_id }}'
+          path: |
+            artifacts/
+            user_data/data/kraken/kraken-ohlcv-manifest.json
+          if-no-files-found: warn
+          retention-days: 30
 # CCXT's non-fatal unclosed-connector warning is retained in logs as upstream behavior.
