@@ -28,17 +28,6 @@ jobs:
           python -m pip install -r .freqtrade-src/requirements.txt
           python -m pip install --no-deps -e .freqtrade-src
           python -m pip install --no-deps -e .freqtrade-src/ft_client
-      - name: Generate Ruff fix diff
-        run: |
-          ruff check . --fix
-          git diff -- src tests > ruff-fix.diff
-      - name: Upload Ruff fix diff
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: ruff-fix-diff
-          path: ruff-fix.diff
-      - name: Require clean Ruff diff
-        run: git diff --exit-code -- src tests
+      - run: ruff check .
       - run: pytest -m native_differential
       - run: pytest
