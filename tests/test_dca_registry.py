@@ -88,10 +88,24 @@ def test_repository_registry_is_valid() -> None:
     registry = load_registry(REPOSITORY_REGISTRY)
     assert [item.strategy_id for item in registry.strategies] == [
         "daily-dca",
+        "drawdown-reserve-dca",
+        "ker-adx-accumulation",
+        "ma-deviation-dca",
         "monthly-dca",
+        "no-sell-value-averaging",
         "weekly-dca",
     ]
     assert registry.strategy("weekly-dca").parameters == {"weekday": 0}
+    assert registry.strategy("drawdown-reserve-dca").parameters == {
+        "immediate_floor_fraction": "0.5",
+        "tier_1_drawdown": "0.1",
+        "tier_1_release_fraction": "0.25",
+        "tier_2_drawdown": "0.2",
+        "tier_2_release_fraction": "0.5",
+        "tier_3_drawdown": "0.3",
+        "tier_3_release_fraction": "1",
+    }
+    assert registry.strategy("ker-adx-accumulation").research_status == "preregistered"
 
 
 def test_cli_emits_the_canonical_repository_registry(tmp_path) -> None:
@@ -229,3 +243,21 @@ def test_provenance_is_complete_and_canonical() -> None:
     assert provenance["parameters"]["allocation_fraction"] == "0.5"
     assert provenance["indicator_definitions"][0]["warmup_candles"] == 20
     assert provenance["repository_commit"] == "a" * 40
+
+
+def test_pilot_thresholds_and_indicator_contracts_fail_closed() -> None:
+    data = json.loads(REPOSITORY_REGISTRY.read_text(encoding="utf-8"))
+    drawdown = next(
+        row for row in data["strategies"] if row["strategy_id"] == "drawdown-reserve-dca"
+    )
+    drawdown["parameters"]["tier_2_drawdown"] = "0.05"
+    with pytest.raises(ValueError, match="strictly lower"):
+        parse_registry(data)
+
+    data = json.loads(REPOSITORY_REGISTRY.read_text(encoding="utf-8"))
+    ker_adx = next(
+        row for row in data["strategies"] if row["strategy_id"] == "ker-adx-accumulation"
+    )
+    ker_adx["required_indicators"] = ker_adx["required_indicators"][:1]
+    with pytest.raises(ValueError, match="exactly the indicators: adx_14, ker_20"):
+        parse_registry(data)
