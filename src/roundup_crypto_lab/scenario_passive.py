@@ -1,26 +1,32 @@
-"""Run passive methods under the same one-shot or recurring scenario as active results."""
+"""Run passive strategies under the same one-shot or recurring scenario as active results."""
 
 from __future__ import annotations
 
 import argparse
 import json
 from calendar import monthrange
-from datetime import UTC, datetime
+from datetime import datetime
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
+from roundup_crypto_lab.dca_baselines import (
+    DEFAULT_STRATEGY_REGISTRY,
+    baseline_name,
+    deploy_legacy_baseline,
+    deploy_registered_baseline,
+    deployment_method,
+    registered_baselines,
+    strategy_metadata,
+)
+from roundup_crypto_lab.dca_registry import load_registry
 from roundup_crypto_lab.deployment_engine import (
-    INTERVAL,
     WEEKDAYS,
     build_result,
     candle_metadata,
-    deploy,
-    deployment_buckets,
     load_kraken_candles,
     number,
     parse_timerange,
-    purchase,
 )
 from roundup_crypto_lab.investment_plan import (
     CashFlowEvent,
@@ -36,6 +42,7 @@ CAPITAL_MODES = frozenset({"one_shot_capital", "recurring_monthly_contributions"
 
 
 def _next_month(value: datetime) -> datetime:
+    """Compatibility helper retained for callers of the former monthly scheduler."""
     year = value.year + (1 if value.month == 12 else 0)
     month = 1 if value.month == 12 else value.month + 1
     day = min(value.day, monthrange(year, month)[1])
@@ -47,38 +54,8 @@ def _monthly_deploy(
     events: tuple[CashFlowEvent, ...],
     candles: Any,
 ) -> list[dict[str, Any]]:
-    """Split each funding bucket over monthly dates until the next contribution."""
-    end = candles.iloc[-1]["date"].to_pydatetime().astimezone(UTC) + INTERVAL
-    purchases: list[dict[str, Any]] = []
-    buckets = deployment_buckets(events)
-    for position, bucket in enumerate(buckets):
-        next_at = (
-            buckets[position + 1].contributed_at
-            if position + 1 < len(buckets)
-            else end
-        )
-        scheduled: list[datetime] = []
-        current = bucket.contributed_at
-        while current < next_at:
-            scheduled.append(current)
-            current = _next_month(current)
-        if not scheduled:
-            continue
-        portion = bucket.amount / len(scheduled)
-        amounts = [portion] * (len(scheduled) - 1)
-        amounts.append(bucket.amount - sum(amounts, Decimal("0")))
-        event = CashFlowEvent(bucket.contributed_at, bucket.amount, "deployment")
-        for scheduled_at, amount in zip(scheduled, amounts, strict=True):
-            executed = purchase(
-                candles,
-                event,
-                scheduled_at,
-                amount,
-                plan.fee_ratio,
-            )
-            if executed is not None:
-                purchases.append(executed)
-    return purchases
+    """Deprecated compatibility adapter routed through the causal strategy interface."""
+    return deploy_legacy_baseline(plan, events, candles, "monthly_dca", 0)
 
 
 def _events_for_mode(
@@ -106,8 +83,9 @@ def run_scenario_passive(
     contribution_day: int,
     repository_commit: str,
     weekly_day: str = "monday",
+    registry_path: Path = DEFAULT_STRATEGY_REGISTRY,
 ) -> dict[str, Any]:
-    """Run passive alternatives with the active scenario's funding convention."""
+    """Run registry-selected passive baselines with the active funding convention."""
     start, end = parse_timerange(timerange)
     plan = InvestmentPlan(initial_capital, monthly_budget, fee, contribution_day)
     if weekly_day.lower() not in WEEKDAYS:
@@ -116,6 +94,12 @@ def run_scenario_passive(
         raise ValueError("repository commit must be non-empty")
     events = _events_for_mode(plan, start, end, capital_mode)
     candles = load_kraken_candles(data_dir, pair, timeframe, timerange)
+    registry = load_registry(registry_path)
+    definitions = registered_baselines(
+        registry,
+        include_immediate=capital_mode == "one_shot_capital",
+        include_monthly=True,
+    )
     schedule = [
         {
             "contributed_at": event.contributed_at.isoformat(),
@@ -124,27 +108,34 @@ def run_scenario_passive(
         }
         for event in events
     ]
-    methods = [
-        ("DailyDCA", "daily_dca"),
-        ("WeeklyDCA", "weekly_dca"),
-        ("MonthlyDCA", "monthly_dca"),
-    ]
-    if capital_mode == "one_shot_capital":
-        methods.insert(0, ("BuyAndHold", "immediate"))
     benchmarks = []
-    for name, method in methods:
-        if method == "monthly_dca":
-            purchases = _monthly_deploy(plan, events, candles)
-        else:
-            purchases = deploy(
-                plan,
-                events,
-                candles,
-                method,
-                WEEKDAYS[weekly_day.lower()],
-            )
-        result = build_result(name, pair, candles, events, purchases)
-        result["deployment_method"] = method
+    for definition in definitions:
+        overrides = (
+            {"weekday": WEEKDAYS[weekly_day.lower()]}
+            if definition.implementation == "fixed_weekly"
+            else None
+        )
+        purchases = deploy_registered_baseline(
+            plan,
+            events,
+            candles,
+            definition,
+            parameter_overrides=overrides,
+        )
+        result = build_result(
+            baseline_name(definition),
+            pair,
+            candles,
+            events,
+            purchases,
+        )
+        result["deployment_method"] = deployment_method(definition)
+        result["strategy"] = strategy_metadata(
+            registry,
+            definition,
+            parameter_overrides=overrides,
+            repository_commit=repository_commit,
+        )
         result["contribution_schedule"] = schedule
         benchmarks.append(result)
     total_contributions = sum((event.amount for event in events), Decimal("0"))
@@ -163,6 +154,11 @@ def run_scenario_passive(
             "pair_candle_coverage": {pair: candle_metadata(candles, timerange)},
             "capital_mode": capital_mode,
             "repository_commit": repository_commit,
+            "strategy_registry": {
+                "registry_schema_version": registry.registry_schema_version,
+                "registry_id": registry.registry_id,
+                "registry_digest": registry.digest,
+            },
         },
         "benchmarks": benchmarks,
     }
@@ -190,6 +186,11 @@ def main() -> None:
     parser.add_argument("--contribution-day", required=True, type=int)
     parser.add_argument("--repository-commit", required=True)
     parser.add_argument("--weekly-day", default="monday")
+    parser.add_argument(
+        "--strategy-registry",
+        type=Path,
+        default=DEFAULT_STRATEGY_REGISTRY,
+    )
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--output-dir", type=Path)
     args = parser.parse_args()
@@ -205,6 +206,7 @@ def main() -> None:
         contribution_day=args.contribution_day,
         repository_commit=args.repository_commit,
         weekly_day=args.weekly_day,
+        registry_path=args.strategy_registry,
     )
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(
