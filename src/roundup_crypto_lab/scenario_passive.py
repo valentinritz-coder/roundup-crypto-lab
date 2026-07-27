@@ -10,22 +10,22 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
+from roundup_crypto_lab.deployment_engine import (
+    INTERVAL,
+    WEEKDAYS,
+    build_result,
+    candle_metadata,
+    deploy,
+    deployment_buckets,
+    load_kraken_candles,
+    number,
+    parse_timerange,
+    purchase,
+)
 from roundup_crypto_lab.investment_plan import (
     CashFlowEvent,
     InvestmentPlan,
     contribution_schedule,
-)
-from roundup_crypto_lab.passive_benchmarks import (
-    INTERVAL,
-    WEEKDAYS,
-    _build_result,
-    _candle_metadata,
-    _deploy,
-    _number,
-    _purchase,
-    deployment_buckets,
-    load_kraken_candles,
-    parse_timerange,
 )
 from roundup_crypto_lab.passive_cash_flow_reporting import (
     enrich_passive_result,
@@ -69,15 +69,15 @@ def _monthly_deploy(
         amounts.append(bucket.amount - sum(amounts, Decimal("0")))
         event = CashFlowEvent(bucket.contributed_at, bucket.amount, "deployment")
         for scheduled_at, amount in zip(scheduled, amounts, strict=True):
-            purchase = _purchase(
+            executed = purchase(
                 candles,
                 event,
                 scheduled_at,
                 amount,
                 plan.fee_ratio,
             )
-            if purchase is not None:
-                purchases.append(purchase)
+            if executed is not None:
+                purchases.append(executed)
     return purchases
 
 
@@ -119,7 +119,7 @@ def run_scenario_passive(
     schedule = [
         {
             "contributed_at": event.contributed_at.isoformat(),
-            "amount": _number(event.amount),
+            "amount": number(event.amount),
             "kind": event.kind,
         }
         for event in events
@@ -136,14 +136,14 @@ def run_scenario_passive(
         if method == "monthly_dca":
             purchases = _monthly_deploy(plan, events, candles)
         else:
-            purchases = _deploy(
+            purchases = deploy(
                 plan,
                 events,
                 candles,
                 method,
                 WEEKDAYS[weekly_day.lower()],
             )
-        result = _build_result(name, pair, candles, events, purchases)
+        result = build_result(name, pair, candles, events, purchases)
         result["deployment_method"] = method
         result["contribution_schedule"] = schedule
         benchmarks.append(result)
@@ -152,17 +152,15 @@ def run_scenario_passive(
         "metadata": {
             "timerange": timerange,
             "timeframe": timeframe,
-            "fee": _number(plan.fee_ratio),
+            "fee": number(plan.fee_ratio),
             "data_dir": str(data_dir),
             "pairs": [pair],
-            "initial_capital": _number(plan.initial_capital),
-            "monthly_budget": _number(plan.monthly_budget),
+            "initial_capital": number(plan.initial_capital),
+            "monthly_budget": number(plan.monthly_budget),
             "contribution_day": plan.contribution_day,
             "contribution_schedule": schedule,
-            "total_contributions": _number(total_contributions),
-            "pair_candle_coverage": {
-                pair: _candle_metadata(candles, timerange)
-            },
+            "total_contributions": number(total_contributions),
+            "pair_candle_coverage": {pair: candle_metadata(candles, timerange)},
             "capital_mode": capital_mode,
             "repository_commit": repository_commit,
         },
