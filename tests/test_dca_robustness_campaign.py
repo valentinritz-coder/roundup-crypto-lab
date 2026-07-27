@@ -48,7 +48,7 @@ def _policy() -> dict:
         "control": "MonthlyDCA",
         "thresholds": {
             "minimum_evaluated_windows": 2,
-            "robust_improvement_final_value_win_rate": 0.65,
+            "robust_improvement_final_value_win_rate": 0.70,
             "robust_improvement_quantity_win_rate": 0.55,
             "promising_final_value_win_rate": 0.55,
             "cash_heavy_median_deployment_ratio_max": 0.75,
