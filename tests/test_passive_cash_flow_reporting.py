@@ -8,6 +8,9 @@ START = datetime(2026, 1, 1, tzinfo=UTC)
 
 
 def test_enrichment_rebuilds_equity_from_serialized_float_components() -> None:
+    cash_float = 0.1
+    asset_float = 0.2
+    independently_serialized_total = 0.30000000000000004
     result = {
         "metadata": {
             "timerange": "20260101-20260102",
@@ -28,16 +31,16 @@ def test_enrichment_rebuilds_equity_from_serialized_float_components() -> None:
                 "equity_curve": [
                     {
                         "timestamp": START.isoformat(),
-                        "cash_balance": 0.1,
-                        "crypto_value": 0.2,
-                        "portfolio_value": 0.30000000000000004,
+                        "cash_balance": cash_float,
+                        "crypto_value": asset_float,
+                        "portfolio_value": independently_serialized_total,
                         "time_weighted_share_value": 1.0,
                     },
                     {
                         "timestamp": (START + timedelta(hours=20)).isoformat(),
-                        "cash_balance": 0.1,
-                        "crypto_value": 0.2,
-                        "portfolio_value": 0.30000000000000004,
+                        "cash_balance": cash_float,
+                        "crypto_value": asset_float,
+                        "portfolio_value": independently_serialized_total,
                         "time_weighted_share_value": 1.0,
                     },
                 ],
@@ -45,8 +48,8 @@ def test_enrichment_rebuilds_equity_from_serialized_float_components() -> None:
         ],
     }
 
-    serialized_total = Decimal(str(0.30000000000000004))
-    serialized_components = Decimal(str(0.1)) + Decimal(str(0.2))
+    serialized_total = Decimal(str(independently_serialized_total))
+    serialized_components = Decimal(str(cash_float)) + Decimal(str(asset_float))
     assert serialized_total != serialized_components
 
     enriched = enrich_passive_result(result)
