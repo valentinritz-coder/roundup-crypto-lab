@@ -1,0 +1,53 @@
+{
+  "registry_schema_version": 1,
+  "registry_id": "roundup-dca-strategies",
+  "strategies": [
+    {
+      "strategy_id": "daily-dca",
+      "implementation": "fixed_daily",
+      "strategy_version": "1",
+      "hypothesis": "Deploying available contributed cash on each daily decision provides a stable passive baseline.",
+      "decision_cadence": "daily",
+      "required_indicators": [],
+      "parameters": {},
+      "maximum_pending_cash_age_days": null,
+      "minimum_order": {
+        "amount": "0",
+        "behavior": "skip"
+      },
+      "research_status": "baseline"
+    },
+    {
+      "strategy_id": "monthly-dca",
+      "implementation": "fixed_monthly",
+      "strategy_version": "1",
+      "hypothesis": "Deploying available contributed cash on each monthly decision provides a low-frequency passive baseline.",
+      "decision_cadence": "monthly",
+      "required_indicators": [],
+      "parameters": {},
+      "maximum_pending_cash_age_days": null,
+      "minimum_order": {
+        "amount": "0",
+        "behavior": "skip"
+      },
+      "research_status": "baseline"
+    },
+    {
+      "strategy_id": "weekly-dca",
+      "implementation": "fixed_weekly",
+      "strategy_version": "1",
+      "hypothesis": "Deploying available contributed cash on Monday decisions provides a stable weekly passive baseline.",
+      "decision_cadence": "weekly",
+      "required_indicators": [],
+      "parameters": {
+        "weekday": 0
+      },
+      "maximum_pending_cash_age_days": null,
+      "minimum_order": {
+        "amount": "0.00",
+        "behavior": "skip"
+      },
+      "research_status": "baseline"
+    }
+  ]
+}
