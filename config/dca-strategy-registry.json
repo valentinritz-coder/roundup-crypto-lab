@@ -48,6 +48,141 @@
         "behavior": "skip"
       },
       "research_status": "baseline"
+    },
+    {
+      "strategy_id": "drawdown-reserve-dca",
+      "implementation": "immediate_floor_drawdown_reserve",
+      "strategy_version": "1",
+      "hypothesis": "Investing half of each contribution immediately while releasing the reserve at preregistered causal drawdown tiers may improve quantity without allowing cash to remain idle beyond 180 days.",
+      "decision_cadence": "every_candle",
+      "required_indicators": [
+        {
+          "name": "rolling_drawdown",
+          "definition_id": "rolling_high_drawdown.close",
+          "version": "1",
+          "warmup_candles": 181,
+          "parameters": {
+            "window": 180,
+            "shift": 1
+          }
+        }
+      ],
+      "parameters": {
+        "immediate_floor_fraction": "0.50",
+        "tier_1_drawdown": "0.10",
+        "tier_1_release_fraction": "0.25",
+        "tier_2_drawdown": "0.20",
+        "tier_2_release_fraction": "0.50",
+        "tier_3_drawdown": "0.30",
+        "tier_3_release_fraction": "1.00"
+      },
+      "maximum_pending_cash_age_days": 180,
+      "minimum_order": {
+        "amount": "1.00",
+        "behavior": "skip"
+      },
+      "research_status": "preregistered"
+    },
+    {
+      "strategy_id": "no-sell-value-averaging",
+      "implementation": "no_sell_value_averaging",
+      "strategy_version": "1",
+      "hypothesis": "Buying only the shortfall between contributed capital and marked crypto value may accumulate more units after declines without ever selling when the position is ahead.",
+      "decision_cadence": "every_candle",
+      "required_indicators": [],
+      "parameters": {
+        "minimum_new_contribution_fraction": "0.10",
+        "target_value_multiplier": "1.00"
+      },
+      "maximum_pending_cash_age_days": 180,
+      "minimum_order": {
+        "amount": "1.00",
+        "behavior": "skip"
+      },
+      "research_status": "preregistered"
+    },
+    {
+      "strategy_id": "ma-deviation-dca",
+      "implementation": "moving_average_deviation",
+      "strategy_version": "1",
+      "hypothesis": "Scaling a bounded daily allocation from the prior close's deviation from a causal 200-candle average may buy more below trend and less above trend.",
+      "decision_cadence": "daily",
+      "required_indicators": [
+        {
+          "name": "long_ma",
+          "definition_id": "sma.close",
+          "version": "1",
+          "warmup_candles": 201,
+          "parameters": {
+            "window": 200,
+            "shift": 1
+          }
+        },
+        {
+          "name": "previous_close",
+          "definition_id": "market.previous_close",
+          "version": "1",
+          "warmup_candles": 1,
+          "parameters": {
+            "shift": 1
+          }
+        }
+      ],
+      "parameters": {
+        "above_ma_multiplier": "0.50",
+        "above_ma_threshold": "0.05",
+        "base_allocation_fraction": "0.10",
+        "below_ma_multiplier": "2.00",
+        "below_ma_threshold": "0.05",
+        "neutral_multiplier": "1.00"
+      },
+      "maximum_pending_cash_age_days": 180,
+      "minimum_order": {
+        "amount": "1.00",
+        "behavior": "skip"
+      },
+      "research_status": "preregistered"
+    },
+    {
+      "strategy_id": "ker-adx-accumulation",
+      "implementation": "ker_adx_accumulation",
+      "strategy_version": "1",
+      "hypothesis": "A 10 percent immediate floor with faster reserve deployment only when causal KER20 and ADX14 confirm an efficient directional trend may avoid chronic underdeployment while testing trend-quality acceleration.",
+      "decision_cadence": "every_candle",
+      "required_indicators": [
+        {
+          "name": "adx_14",
+          "definition_id": "wilder.adx",
+          "version": "1",
+          "warmup_candles": 120,
+          "parameters": {
+            "window": 14,
+            "shift": 1
+          }
+        },
+        {
+          "name": "ker_20",
+          "definition_id": "kaufman.efficiency_ratio.close",
+          "version": "1",
+          "warmup_candles": 120,
+          "parameters": {
+            "window": 20,
+            "shift": 1
+          }
+        }
+      ],
+      "parameters": {
+        "accelerated_release_fraction": "0.50",
+        "adx_threshold": "25",
+        "immediate_floor_fraction": "0.10",
+        "ker_threshold": "0.35"
+      },
+      "maximum_pending_cash_age_days": 180,
+      "minimum_order": {
+        "amount": "1.00",
+        "behavior": "skip"
+      },
+      "research_status": "preregistered"
     }
   ]
 }
