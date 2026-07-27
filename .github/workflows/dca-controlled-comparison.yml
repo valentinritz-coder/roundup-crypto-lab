@@ -25,6 +25,39 @@ jobs:
         with: {python-version: '3.12', cache: pip, cache-dependency-path: pyproject.toml}
       - name: Install project
         run: python -m pip install -e '.[dev]'
+      - name: Normalize workflow inputs
+        env:
+          RAW_PAIR: '${{ inputs.pair }}'
+          RAW_TIMEFRAME: '${{ inputs.timeframe }}'
+          RAW_TIMERANGE: '${{ inputs.timerange }}'
+          RAW_REGISTRY_PATH: '${{ inputs.registry_path }}'
+          RAW_INITIAL_CAPITAL: '${{ inputs.initial_capital }}'
+          RAW_MONTHLY_BUDGET: '${{ inputs.monthly_budget }}'
+          RAW_CONTRIBUTION_DAY: '${{ inputs.contribution_day }}'
+          RAW_FEE_RATIO: '${{ inputs.fee_ratio }}'
+        run: |
+          python - <<'PY'
+          import os
+          from pathlib import Path
+
+          names = (
+              "PAIR",
+              "TIMEFRAME",
+              "TIMERANGE",
+              "REGISTRY_PATH",
+              "INITIAL_CAPITAL",
+              "MONTHLY_BUDGET",
+              "CONTRIBUTION_DAY",
+              "FEE_RATIO",
+          )
+          destination = Path(os.environ["GITHUB_ENV"])
+          with destination.open("a", encoding="utf-8") as handle:
+              for name in names:
+                  value = os.environ[f"RAW_{name}"].strip()
+                  if not value or "\n" in value or "\r" in value:
+                      raise ValueError(f"invalid workflow input: {name}")
+                  handle.write(f"{name}={value}\n")
+          PY
       - name: Restore prepared Kraken cache
         id: restore-kraken
         uses: actions/cache/restore@v4
@@ -33,11 +66,6 @@ jobs:
           key: 'kraken-ohlcv-v1-controlled-dca-${{ github.run_id }}'
           restore-keys: kraken-ohlcv-v1-
       - name: Validate immutable inputs and registry
-        env:
-          PAIR: '${{ inputs.pair }}'
-          TIMEFRAME: '${{ inputs.timeframe }}'
-          TIMERANGE: '${{ inputs.timerange }}'
-          REGISTRY_PATH: '${{ inputs.registry_path }}'
         run: |
           test '${{ steps.restore-kraken.outputs.cache-hit }}' != '' || { echo 'No prepared Kraken cache was restored. Run Update Kraken data first.'; exit 1; }
           test "$REGISTRY_PATH" = config/dca-strategy-registry.json
@@ -46,15 +74,6 @@ jobs:
           python -m roundup_crypto_lab.breakout_comparison validate-data "$TIMERANGE" user_data/data/kraken |& tee artifacts/data-validation.txt
           test -f "user_data/data/kraken/${PAIR//\//_}-${TIMEFRAME}.feather"
       - name: Run controlled DCA comparison
-        env:
-          PAIR: '${{ inputs.pair }}'
-          TIMEFRAME: '${{ inputs.timeframe }}'
-          TIMERANGE: '${{ inputs.timerange }}'
-          REGISTRY_PATH: '${{ inputs.registry_path }}'
-          INITIAL_CAPITAL: '${{ inputs.initial_capital }}'
-          MONTHLY_BUDGET: '${{ inputs.monthly_budget }}'
-          CONTRIBUTION_DAY: '${{ inputs.contribution_day }}'
-          FEE_RATIO: '${{ inputs.fee_ratio }}'
         run: |
           python -m roundup_crypto_lab.dca_controlled_comparison \
             --pair "$PAIR" --timeframe "$TIMEFRAME" --timerange "$TIMERANGE" \
@@ -65,10 +84,10 @@ jobs:
           cat artifacts/results/job-summary.md >> "$GITHUB_STEP_SUMMARY"
       - name: Record scenario status
         if: always()
-        env: {JOB_STATUS: '${{ job.status }}', PAIR: '${{ inputs.pair }}', TIMERANGE: '${{ inputs.timerange }}'}
+        env: {JOB_STATUS: '${{ job.status }}'}
         run: |
           mkdir -p artifacts
-          python -c 'import json, os, pathlib; pathlib.Path("artifacts/scenario-status.json").write_text(json.dumps({"schema_version":"dca-controlled-comparison-status/v1","pair":os.environ["PAIR"],"timerange":os.environ["TIMERANGE"],"conclusion":os.environ["JOB_STATUS"]}, indent=2, sort_keys=True)+"\n")'
+          python -c 'import json, os, pathlib; pathlib.Path("artifacts/scenario-status.json").write_text(json.dumps({"schema_version":"dca-controlled-comparison-status/v1","pair":os.environ.get("PAIR", ""),"timerange":os.environ.get("TIMERANGE", ""),"conclusion":os.environ["JOB_STATUS"]}, indent=2, sort_keys=True)+"\n")'
       - if: always()
         uses: actions/upload-artifact@v4
         with:
