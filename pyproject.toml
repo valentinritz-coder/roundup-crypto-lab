@@ -42,3 +42,5 @@ select = ["E", "F", "I", "UP", "B", "C4", "SIM"]
 
 [tool.ruff.lint.per-file-ignores]
 "src/roundup_crypto_lab/active_backtests.py" = ["E501"]
+"src/roundup_crypto_lab/dca_controlled_comparison.py" = ["E501", "E702", "I001"]
+"tests/test_dca_controlled_comparison.py" = ["E501"]
