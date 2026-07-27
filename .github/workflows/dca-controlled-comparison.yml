@@ -8,7 +8,7 @@ on:
       registry_path: {description: Reviewed registry path, required: true, default: "config/dca-strategy-registry.json", type: string}
       initial_capital: {description: Initial capital, required: true, default: "40", type: string}
       monthly_budget: {description: Monthly contribution, required: true, default: "40", type: string}
-      contribution_day: {description: Monthly contribution day, required: true, default: 1, type: number}
+      contribution_day: {description: Monthly contribution day (integer 1-31), required: true, default: "1", type: string}
       fee_ratio: {description: Trading fee ratio, required: true, default: "0.0026", type: string}
       artifact_name: {description: Artifact prefix, required: true, default: "controlled-dca-comparison", type: string}
 permissions: {contents: read}
@@ -38,6 +38,7 @@ jobs:
         run: |
           python - <<'PY'
           import os
+          from decimal import Decimal, InvalidOperation
           from pathlib import Path
 
           names = (
@@ -50,13 +51,29 @@ jobs:
               "CONTRIBUTION_DAY",
               "FEE_RATIO",
           )
+          values = {}
+          for name in names:
+              value = os.environ[f"RAW_{name}"].strip()
+              if not value or "\n" in value or "\r" in value:
+                  raise ValueError(f"invalid workflow input: {name}")
+              values[name] = value
+
+          try:
+              contribution_day = Decimal(values["CONTRIBUTION_DAY"])
+          except InvalidOperation as exc:
+              raise ValueError("contribution day must be an integer from 1 through 31") from exc
+          if (
+              not contribution_day.is_finite()
+              or contribution_day != contribution_day.to_integral_value()
+              or not 1 <= contribution_day <= 31
+          ):
+              raise ValueError("contribution day must be an integer from 1 through 31")
+          values["CONTRIBUTION_DAY"] = str(int(contribution_day))
+
           destination = Path(os.environ["GITHUB_ENV"])
           with destination.open("a", encoding="utf-8") as handle:
               for name in names:
-                  value = os.environ[f"RAW_{name}"].strip()
-                  if not value or "\n" in value or "\r" in value:
-                      raise ValueError(f"invalid workflow input: {name}")
-                  handle.write(f"{name}={value}\n")
+                  handle.write(f"{name}={values[name]}\n")
           PY
       - name: Restore prepared Kraken cache
         id: restore-kraken
