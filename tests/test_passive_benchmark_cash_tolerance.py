@@ -2,7 +2,7 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from itertools import pairwise
 
-from roundup_crypto_lab.passive_benchmarks import _assert_accounting_invariants
+from roundup_crypto_lab.deployment_engine import validate_accounting_invariants
 
 
 def test_cash_invariant_scales_with_long_daily_dca_rounding_residue() -> None:
@@ -54,7 +54,7 @@ def test_cash_invariant_scales_with_long_daily_dca_rounding_residue() -> None:
     assert residue > Decimal("1e-24")
     assert residue <= Decimal("1e-24") * len(purchases)
 
-    _assert_accounting_invariants(
+    validate_accounting_invariants(
         purchases,
         quantity=running_quantity,
         cash=Decimal("0"),
