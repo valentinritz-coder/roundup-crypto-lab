@@ -386,7 +386,10 @@ def test_constant_price_invariants_and_fee_loss_only(tmp_path, fee: str) -> None
 
 def test_contribution_neutral_drawdown_is_not_erased_by_deposit(tmp_path) -> None:
     frame = prepared_candles(datetime(2026, 1, 1, tzinfo=UTC), datetime(2026, 1, 3, 20, tzinfo=UTC))
-    frame.loc[frame["date"] >= pd.Timestamp("2026-01-02T00:00:00Z"), ["open", "close"]] = 50
+    frame.loc[
+        frame["date"] >= pd.Timestamp("2026-01-02T00:00:00Z"),
+        ["open", "high", "low", "close"],
+    ] = 50
     write_candles(tmp_path, frame)
     result = run_passive_benchmarks(
         tmp_path, ["BTC/EUR"], "4h", "20260101-20260104", "100", "100", "0", 2
