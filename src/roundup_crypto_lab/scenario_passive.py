@@ -10,6 +10,11 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
+from roundup_crypto_lab.dca_audit import (
+    DCA_RESULT_SCHEMA_VERSION,
+    apply_monthly_dca_reference,
+    enrich_dca_strategy_result,
+)
 from roundup_crypto_lab.dca_baselines import (
     DEFAULT_STRATEGY_REGISTRY,
     baseline_name,
@@ -129,6 +134,15 @@ def run_scenario_passive(
             events,
             purchases,
         )
+        enrich_dca_strategy_result(
+            result=result,
+            definition=definition,
+            events=events,
+            candles=candles,
+            purchases=purchases,
+            period_end=end,
+            parameter_overrides=overrides,
+        )
         result["deployment_method"] = deployment_method(definition)
         result["strategy"] = strategy_metadata(
             registry,
@@ -138,6 +152,7 @@ def run_scenario_passive(
         )
         result["contribution_schedule"] = schedule
         benchmarks.append(result)
+    apply_monthly_dca_reference(benchmarks)
     total_contributions = sum((event.amount for event in events), Decimal("0"))
     payload = {
         "metadata": {
@@ -154,6 +169,7 @@ def run_scenario_passive(
             "pair_candle_coverage": {pair: candle_metadata(candles, timerange)},
             "capital_mode": capital_mode,
             "repository_commit": repository_commit,
+            "dca_strategy_result_schema_version": DCA_RESULT_SCHEMA_VERSION,
             "strategy_registry": {
                 "registry_schema_version": registry.registry_schema_version,
                 "registry_id": registry.registry_id,
