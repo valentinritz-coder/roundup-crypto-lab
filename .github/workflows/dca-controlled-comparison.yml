@@ -1,0 +1,78 @@
+name: Controlled DCA strategy comparison
+on:
+  workflow_dispatch:
+    inputs:
+      pair: {description: Separate market scenario, required: true, default: "BTC/EUR", type: choice, options: ["BTC/EUR", "ETH/EUR"]}
+      timeframe: {description: Prepared Kraken timeframe, required: true, default: "4h", type: choice, options: ["4h"]}
+      timerange: {description: Strict YYYYMMDD-YYYYMMDD range, required: true, type: string}
+      registry_path: {description: Reviewed registry path, required: true, default: "config/dca-strategy-registry.json", type: string}
+      initial_capital: {description: Initial capital, required: true, default: "40", type: string}
+      monthly_budget: {description: Monthly contribution, required: true, default: "40", type: string}
+      contribution_day: {description: Monthly contribution day, required: true, default: 1, type: number}
+      fee_ratio: {description: Trading fee ratio, required: true, default: "0.0026", type: string}
+      artifact_name: {description: Artifact prefix, required: true, default: "controlled-dca-comparison", type: string}
+permissions: {contents: read}
+concurrency:
+  group: 'controlled-dca-${{ inputs.pair }}-${{ github.run_id }}'
+  cancel-in-progress: false
+jobs:
+  compare-dca-strategies:
+    runs-on: ubuntu-latest
+    defaults: {run: {shell: "bash -eo pipefail {0}"}}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.12', cache: pip, cache-dependency-path: pyproject.toml}
+      - name: Install project
+        run: python -m pip install -e '.[dev]'
+      - name: Restore prepared Kraken cache
+        id: restore-kraken
+        uses: actions/cache/restore@v4
+        with:
+          path: user_data/data/kraken
+          key: 'kraken-ohlcv-v1-controlled-dca-${{ github.run_id }}'
+          restore-keys: kraken-ohlcv-v1-
+      - name: Validate immutable inputs and registry
+        env:
+          PAIR: '${{ inputs.pair }}'
+          TIMEFRAME: '${{ inputs.timeframe }}'
+          TIMERANGE: '${{ inputs.timerange }}'
+          REGISTRY_PATH: '${{ inputs.registry_path }}'
+        run: |
+          test '${{ steps.restore-kraken.outputs.cache-hit }}' != '' || { echo 'No prepared Kraken cache was restored. Run Update Kraken data first.'; exit 1; }
+          test "$REGISTRY_PATH" = config/dca-strategy-registry.json
+          python -m roundup_crypto_lab.breakout_comparison validate-timerange "$TIMERANGE"
+          python -m roundup_crypto_lab.dca_registry "$REGISTRY_PATH" --output artifacts/validated-registry.json
+          python -m roundup_crypto_lab.breakout_comparison validate-data "$TIMERANGE" user_data/data/kraken |& tee artifacts/data-validation.txt
+          test -f "user_data/data/kraken/${PAIR//\//_}-${TIMEFRAME}.feather"
+      - name: Run controlled DCA comparison
+        env:
+          PAIR: '${{ inputs.pair }}'
+          TIMEFRAME: '${{ inputs.timeframe }}'
+          TIMERANGE: '${{ inputs.timerange }}'
+          REGISTRY_PATH: '${{ inputs.registry_path }}'
+          INITIAL_CAPITAL: '${{ inputs.initial_capital }}'
+          MONTHLY_BUDGET: '${{ inputs.monthly_budget }}'
+          CONTRIBUTION_DAY: '${{ inputs.contribution_day }}'
+          FEE_RATIO: '${{ inputs.fee_ratio }}'
+        run: |
+          python -m roundup_crypto_lab.dca_controlled_comparison \
+            --pair "$PAIR" --timeframe "$TIMEFRAME" --timerange "$TIMERANGE" \
+            --registry "$REGISTRY_PATH" --initial-capital "$INITIAL_CAPITAL" \
+            --monthly-budget "$MONTHLY_BUDGET" --contribution-day "$CONTRIBUTION_DAY" \
+            --fee "$FEE_RATIO" --repository-commit "$GITHUB_SHA" \
+            --output-dir artifacts/results
+          cat artifacts/results/job-summary.md >> "$GITHUB_STEP_SUMMARY"
+      - name: Record scenario status
+        if: always()
+        env: {JOB_STATUS: '${{ job.status }}', PAIR: '${{ inputs.pair }}', TIMERANGE: '${{ inputs.timerange }}'}
+        run: |
+          mkdir -p artifacts
+          python -c 'import json, os, pathlib; pathlib.Path("artifacts/scenario-status.json").write_text(json.dumps({"schema_version":"dca-controlled-comparison-status/v1","pair":os.environ["PAIR"],"timerange":os.environ["TIMERANGE"],"conclusion":os.environ["JOB_STATUS"]}, indent=2, sort_keys=True)+"\n")'
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: '${{ inputs.artifact_name }}-${{ github.run_id }}'
+          path: artifacts/
+          if-no-files-found: error
+          retention-days: 30
