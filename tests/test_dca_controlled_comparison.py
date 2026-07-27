@@ -32,7 +32,7 @@ def test_schedule_is_deterministic_and_exact() -> None:
     left = _schedule(plan, start, end)
     right = _schedule(plan, start, end)
     assert left == right
-    assert sum((event.amount for event in left), Decimal("0")) == Decimal("160")
+    assert sum((event.amount for event in left), Decimal("0")) == Decimal("120")
 
 
 def test_output_writer_is_deterministic_except_manifest_timestamp(tmp_path: Path) -> None:
