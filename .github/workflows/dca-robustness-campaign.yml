@@ -1,0 +1,96 @@
+name: DCA robustness campaign
+on:
+  workflow_dispatch:
+    inputs:
+      campaign_path: {description: Frozen campaign definition, required: true, default: "config/dca-robustness-campaign.json", type: string}
+      policy_path: {description: Frozen classification policy, required: true, default: "config/dca-robustness-policy.json", type: string}
+      artifact_name: {description: Artifact prefix, required: true, default: "dca-robustness-campaign", type: string}
+permissions: {contents: read}
+concurrency:
+  group: dca-robustness-campaign
+  cancel-in-progress: false
+jobs:
+  robustness:
+    runs-on: ubuntu-latest
+    defaults: {run: {shell: "bash -eo pipefail {0}"}}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.12', cache: pip, cache-dependency-path: pyproject.toml}
+      - name: Install project
+        run: python -m pip install -e '.[dev]'
+      - name: Restore prepared Kraken cache
+        id: restore-kraken
+        uses: actions/cache/restore@v4
+        with:
+          path: user_data/data/kraken
+          key: 'kraken-ohlcv-v1-dca-robustness-${{ github.run_id }}'
+          restore-keys: kraken-ohlcv-v1-
+      - name: Validate frozen campaign inputs
+        env:
+          CAMPAIGN_PATH: '${{ inputs.campaign_path }}'
+          POLICY_PATH: '${{ inputs.policy_path }}'
+        run: |
+          test '${{ steps.restore-kraken.outputs.cache-hit }}' != '' || { echo 'No prepared Kraken cache was restored. Run Update Kraken data first.'; exit 1; }
+          test "$CAMPAIGN_PATH" = config/dca-robustness-campaign.json
+          test "$POLICY_PATH" = config/dca-robustness-policy.json
+          mkdir -p artifacts/results artifacts/diagnostics
+          python -m roundup_crypto_lab.dca_registry config/dca-strategy-registry.json --output artifacts/validated-registry.json
+          python -m roundup_crypto_lab.dca_robustness_campaign plan --campaign "$CAMPAIGN_PATH" --output artifacts/campaign-plan.json
+      - name: Run frozen rolling-window campaign
+        env:
+          CAMPAIGN_PATH: '${{ inputs.campaign_path }}'
+        run: |
+          python - <<'PY' > artifacts/scenarios.tsv
+          import json
+          from pathlib import Path
+          for row in json.loads(Path('artifacts/campaign-plan.json').read_text()):
+              print('\t'.join(str(row[key]) for key in ('pair', 'window_set_id', 'phase', 'timerange')))
+          PY
+          while IFS=$'\t' read -r pair window_set phase timerange; do
+            safe_pair=${pair//\//_}
+            output="artifacts/results/${safe_pair}/${window_set}/${timerange}"
+            mkdir -p "$output"
+            python -m roundup_crypto_lab.dca_controlled_comparison \
+              --pair "$pair" --timeframe 4h --timerange "$timerange" \
+              --registry config/dca-strategy-registry.json \
+              --initial-capital 40 --monthly-budget 40 --contribution-day 1 \
+              --fee 0.0026 --repository-commit "$GITHUB_SHA" --output-dir "$output"
+            OUTPUT="$output" WINDOW_SET="$window_set" PHASE="$phase" python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          path = Path(os.environ['OUTPUT']) / 'controlled-comparison.json'
+          payload = json.loads(path.read_text())
+          payload['campaign'] = {
+              'window_set_id': os.environ['WINDOW_SET'],
+              'phase': os.environ['PHASE'],
+              'variant_id': 'frozen-default',
+          }
+          path.write_text(json.dumps(payload, indent=2, sort_keys=True) + '\n')
+          PY
+          done < artifacts/scenarios.tsv
+      - name: Aggregate robustness statistics
+        env:
+          CAMPAIGN_PATH: '${{ inputs.campaign_path }}'
+          POLICY_PATH: '${{ inputs.policy_path }}'
+        run: |
+          REGISTRY_DIGEST=$(python -c 'import json; print(json.load(open("artifacts/validated-registry.json"))["registry_digest"])')
+          python -m roundup_crypto_lab.dca_robustness_campaign aggregate \
+            --campaign "$CAMPAIGN_PATH" --policy "$POLICY_PATH" \
+            --registry-digest "$REGISTRY_DIGEST" --repository-commit "$GITHUB_SHA" \
+            --results-dir artifacts/results --output-dir artifacts/robustness
+          cat artifacts/robustness/job-summary.md >> "$GITHUB_STEP_SUMMARY"
+      - name: Record campaign status
+        if: always()
+        env: {JOB_STATUS: '${{ job.status }}'}
+        run: |
+          mkdir -p artifacts/diagnostics
+          python -c 'import json, os, pathlib; pathlib.Path("artifacts/diagnostics/campaign-status.json").write_text(json.dumps({"schema_version":"dca-robustness-status/v1","conclusion":os.environ["JOB_STATUS"]}, indent=2, sort_keys=True)+"\n")'
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: '${{ inputs.artifact_name }}-${{ github.run_id }}'
+          path: artifacts/
+          if-no-files-found: error
+          retention-days: 30

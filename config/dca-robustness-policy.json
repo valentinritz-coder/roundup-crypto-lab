@@ -1,0 +1,20 @@
+{
+  "schema_version": "dca-robustness-policy/v1",
+  "policy_id": "dca-robustness-policy-2026-07-27",
+  "control": "MonthlyDCA",
+  "thresholds": {
+    "minimum_evaluated_windows": 4,
+    "robust_improvement_final_value_win_rate": 0.65,
+    "robust_improvement_quantity_win_rate": 0.55,
+    "promising_final_value_win_rate": 0.55,
+    "cash_heavy_median_deployment_ratio_max": 0.75,
+    "inactive_no_buy_rate": 0.5,
+    "unstable_rank_dispersion_min": 2.0,
+    "rejected_final_value_win_rate_max": 0.35
+  },
+  "notes": [
+    "Thresholds are frozen before campaign results are classified.",
+    "Overlapping rolling windows are not independent observations.",
+    "BTC/EUR and ETH/EUR are classified separately."
+  ]
+}

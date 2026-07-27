@@ -1,0 +1,77 @@
+{
+  "schema_version": "dca-robustness-campaign/v1",
+  "campaign_id": "dca-robustness-2026-07-27",
+  "registry_path": "config/dca-strategy-registry.json",
+  "policy_path": "config/dca-robustness-policy.json",
+  "timeframe": "4h",
+  "investment_plan": {
+    "initial_capital": "40",
+    "monthly_budget": "40",
+    "contribution_day": 1,
+    "fee_ratio": "0.0026"
+  },
+  "pairs": ["BTC/EUR", "ETH/EUR"],
+  "window_sets": [
+    {
+      "window_set_id": "rolling-24m-6m-step",
+      "phase": "exploratory",
+      "start": "20180101",
+      "end": "20260101",
+      "months": 24,
+      "step_months": 6,
+      "overlapping": true
+    },
+    {
+      "window_set_id": "non-overlapping-24m",
+      "phase": "exploratory",
+      "start": "20180101",
+      "end": "20260101",
+      "months": 24,
+      "step_months": 24,
+      "overlapping": false
+    },
+    {
+      "window_set_id": "rolling-48m-12m-step",
+      "phase": "exploratory",
+      "start": "20180101",
+      "end": "20260101",
+      "months": 48,
+      "step_months": 12,
+      "overlapping": true
+    },
+    {
+      "window_set_id": "confirmation-24m",
+      "phase": "confirmation",
+      "start": "20240101",
+      "end": "20260101",
+      "months": 24,
+      "step_months": 24,
+      "overlapping": false
+    }
+  ],
+  "parameter_neighborhoods": [
+    {
+      "family": "moving_average_deviation",
+      "strategy_id": "ma-deviation-dca",
+      "variants": [
+        {"variant_id": "frozen-default", "overrides": {}},
+        {"variant_id": "thresholds-4pct", "overrides": {"below_ma_threshold": "0.04", "above_ma_threshold": "0.04"}},
+        {"variant_id": "thresholds-6pct", "overrides": {"below_ma_threshold": "0.06", "above_ma_threshold": "0.06"}}
+      ]
+    },
+    {
+      "family": "ker_adx_accumulation",
+      "strategy_id": "ker-adx-accumulation",
+      "variants": [
+        {"variant_id": "frozen-default", "overrides": {}},
+        {"variant_id": "ker-0.30", "overrides": {"ker_threshold": "0.30"}},
+        {"variant_id": "ker-0.40", "overrides": {"ker_threshold": "0.40"}}
+      ]
+    }
+  ],
+  "disclosures": [
+    "Overlapping rolling windows are not independent observations.",
+    "Exploratory and confirmation results must remain visibly distinct.",
+    "Parameter-neighborhood variants never replace the frozen default."
+  ]
+}
