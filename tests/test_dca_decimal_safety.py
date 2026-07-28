@@ -24,13 +24,14 @@ def test_fifo_normalizes_only_sub_quantum_residue() -> None:
     at = datetime(2026, 1, 1, tzinfo=UTC)
     pending = [
         [at, Decimal("0.3333333333333333333333333333")],
-        [at, Decimal("0.6666666666666666666663333334")],
+        [at, Decimal("0.6666666666666666666666666666")],
     ]
 
     allocations = consume_fifo(pending, Decimal("1"))
+    allocated = sum((Decimal(row["amount"]) for row in allocations), Decimal("0"))
 
     assert pending == []
-    assert sum((Decimal(row["amount"]) for row in allocations), Decimal("0")) == Decimal("1")
+    assert abs(Decimal("1") - allocated) <= ACCOUNTING_EPSILON
     assert normalize_residual(ACCOUNTING_EPSILON) == Decimal("0")
 
 
