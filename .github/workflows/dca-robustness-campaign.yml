@@ -9,7 +9,7 @@ name: DCA robustness campaign
         type: choice
         options: [exploratory, confirmation]
       start_date:
-        description: Optional earliest scenario start date in YYYYMMDD format
+        description: Optional earliest scenario start as YYYYMMDD or YYYYMMDD-YYYYMMDD
         required: false
         default: ""
         type: string
@@ -61,17 +61,33 @@ jobs:
 
           path = Path('artifacts/campaign-plan.json')
           rows = json.loads(path.read_text())
-          start_date = os.environ['START_DATE'].strip()
+          raw_start = os.environ['START_DATE'].strip()
+          start_date = raw_start.split('-', 1)[0] if raw_start else ''
           if start_date:
               try:
                   datetime.strptime(start_date, '%Y%m%d')
               except ValueError as error:
-                  raise SystemExit('start_date must use YYYYMMDD') from error
+                  raise SystemExit(
+                      'start_date must use YYYYMMDD or YYYYMMDD-YYYYMMDD'
+                  ) from error
+              if raw_start != start_date:
+                  try:
+                      start, end = raw_start.split('-', 1)
+                      datetime.strptime(end, '%Y%m%d')
+                  except ValueError as error:
+                      raise SystemExit(
+                          'start_date must use YYYYMMDD or YYYYMMDD-YYYYMMDD'
+                      ) from error
+                  if start >= end:
+                      raise SystemExit('start_date timerange start must be before end')
               rows = [row for row in rows if row['timerange'][:8] >= start_date]
               if not rows:
                   raise SystemExit(f'no campaign scenarios start on or after {start_date}')
           path.write_text(json.dumps(rows, indent=2, sort_keys=True) + '\n')
-          print(f'planned scenarios: {len(rows)}; start_date={start_date or "campaign-default"}')
+          print(
+              f'planned scenarios: {len(rows)}; '
+              f'start_date={start_date or "campaign-default"}'
+          )
           PY
       - name: Materialize preregistered variants
         env:
