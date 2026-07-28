@@ -1,8 +1,9 @@
-"""Run one campaign scenario and record expected data-quality exclusions."""
+"""Run one campaign scenario and record exclusions or unexpected failures."""
 from __future__ import annotations
 
 import argparse
 import json
+import traceback
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
@@ -15,6 +16,7 @@ run_comparison = controlled_comparison.run_comparison
 write_outputs = controlled_comparison.write_outputs
 
 EXCLUSION_SCHEMA_VERSION = "dca-campaign-scenario-exclusion/v1"
+FAILURE_SCHEMA_VERSION = "dca-campaign-scenario-failure/v1"
 EXCLUDABLE_DATA_ERRORS = (
     "missing Kraken data for ",
     "invalid OHLCV columns for ",
@@ -32,6 +34,25 @@ def is_excludable_data_error(error: ValueError) -> bool:
     return str(error).startswith(EXCLUDABLE_DATA_ERRORS)
 
 
+def _scenario_identity(
+    *,
+    pair: str,
+    timeframe: str,
+    timerange: str,
+    window_set_id: str,
+    phase: str,
+    variant_id: str,
+) -> dict[str, str]:
+    return {
+        "pair": pair,
+        "timeframe": timeframe,
+        "timerange": timerange,
+        "window_set_id": window_set_id,
+        "phase": phase,
+        "variant_id": variant_id,
+    }
+
+
 def exclusion_payload(
     *,
     pair: str,
@@ -46,19 +67,56 @@ def exclusion_payload(
     return {
         "schema_version": EXCLUSION_SCHEMA_VERSION,
         "status": "excluded",
-        "scenario": {
-            "pair": pair,
-            "timeframe": timeframe,
-            "timerange": timerange,
-            "window_set_id": window_set_id,
-            "phase": phase,
-            "variant_id": variant_id,
-        },
+        "scenario": _scenario_identity(
+            pair=pair,
+            timeframe=timeframe,
+            timerange=timerange,
+            window_set_id=window_set_id,
+            phase=phase,
+            variant_id=variant_id,
+        ),
         "exclusion": {
             "category": "input-data-quality",
             "reason": reason,
         },
     }
+
+
+def failure_payload(
+    *,
+    pair: str,
+    timeframe: str,
+    timerange: str,
+    window_set_id: str,
+    phase: str,
+    variant_id: str,
+    error: Exception,
+) -> dict[str, Any]:
+    """Build a persistent diagnostic record for an unexpected scenario failure."""
+    return {
+        "schema_version": FAILURE_SCHEMA_VERSION,
+        "status": "failed",
+        "scenario": _scenario_identity(
+            pair=pair,
+            timeframe=timeframe,
+            timerange=timerange,
+            window_set_id=window_set_id,
+            phase=phase,
+            variant_id=variant_id,
+        ),
+        "failure": {
+            "exception_type": type(error).__name__,
+            "message": str(error),
+            "traceback": traceback.format_exc(),
+        },
+    }
+
+
+def _write_json(path: Path, payload: dict[str, Any]) -> None:
+    path.write_text(
+        json.dumps(payload, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
 
 
 def _install_decimal_safety() -> None:
@@ -84,7 +142,7 @@ def run_campaign_scenario(
     phase: str,
     variant_id: str,
 ) -> str:
-    """Run a comparison, or persist an explicit exclusion without failing the campaign."""
+    """Run a comparison, persist expected exclusions, and retain fatal diagnostics."""
     output_dir.mkdir(parents=True, exist_ok=True)
     _install_decimal_safety()
     try:
@@ -101,22 +159,41 @@ def run_campaign_scenario(
             repository_commit=repository_commit,
         )
     except ValueError as error:
-        if not is_excludable_data_error(error):
-            raise
-        excluded = exclusion_payload(
+        if is_excludable_data_error(error):
+            excluded = exclusion_payload(
+                pair=pair,
+                timeframe=timeframe,
+                timerange=timerange,
+                window_set_id=window_set_id,
+                phase=phase,
+                variant_id=variant_id,
+                reason=str(error),
+            )
+            _write_json(output_dir / "scenario-exclusion.json", excluded)
+            return "excluded"
+        failed = failure_payload(
             pair=pair,
             timeframe=timeframe,
             timerange=timerange,
             window_set_id=window_set_id,
             phase=phase,
             variant_id=variant_id,
-            reason=str(error),
+            error=error,
         )
-        (output_dir / "scenario-exclusion.json").write_text(
-            json.dumps(excluded, indent=2, sort_keys=True) + "\n",
-            encoding="utf-8",
+        _write_json(output_dir / "scenario-failure.json", failed)
+        raise
+    except Exception as error:
+        failed = failure_payload(
+            pair=pair,
+            timeframe=timeframe,
+            timerange=timerange,
+            window_set_id=window_set_id,
+            phase=phase,
+            variant_id=variant_id,
+            error=error,
         )
-        return "excluded"
+        _write_json(output_dir / "scenario-failure.json", failed)
+        raise
 
     payload["campaign"] = {
         "window_set_id": window_set_id,
