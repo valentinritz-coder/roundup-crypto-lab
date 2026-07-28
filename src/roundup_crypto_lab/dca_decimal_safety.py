@@ -5,6 +5,11 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Any
 
+import pandas as pd
+
+from roundup_crypto_lab.deployment_engine import purchase as deployment_purchase
+from roundup_crypto_lab.investment_plan import CashFlowEvent
+
 ACCOUNTING_EPSILON = Decimal("1e-24")
 
 
@@ -23,6 +28,25 @@ def normalize_residual(value: Decimal) -> Decimal:
     if not value.is_finite():
         raise ValueError("accounting balances must be finite")
     return Decimal("0") if abs(value) <= ACCOUNTING_EPSILON else value
+
+
+def exact_purchase(
+    candles: pd.DataFrame,
+    event: CashFlowEvent,
+    scheduled_at: datetime,
+    amount: Decimal,
+    fee: Decimal,
+) -> dict[str, Any] | None:
+    """Build a purchase whose gross amount is exactly fee plus net contribution."""
+    executed = deployment_purchase(candles, event, scheduled_at, amount, fee)
+    if executed is None:
+        return None
+    gross = executed["gross_contribution"]
+    fee_paid = executed["fee_paid"]
+    net = gross - fee_paid
+    executed["net_contribution"] = net
+    executed["quantity"] = net / executed["execution_price"]
+    return executed
 
 
 def consume_fifo(
