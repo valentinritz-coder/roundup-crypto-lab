@@ -3,14 +3,17 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from decimal import Decimal
 
+import pandas as pd
 import pytest
 
 from roundup_crypto_lab.dca_decimal_safety import (
     ACCOUNTING_EPSILON,
     canonical_decimal,
     consume_fifo,
+    exact_purchase,
     normalize_residual,
 )
+from roundup_crypto_lab.investment_plan import CashFlowEvent
 
 
 def test_canonical_decimal_preserves_integer_zeroes() -> None:
@@ -18,6 +21,31 @@ def test_canonical_decimal_preserves_integer_zeroes() -> None:
     assert canonical_decimal(Decimal("40")) == "40"
     assert canonical_decimal(Decimal("1.2300")) == "1.23"
     assert canonical_decimal(Decimal("0.000")) == "0"
+
+
+def test_exact_purchase_preserves_ledger_identity_for_fractional_amount() -> None:
+    at = datetime(2026, 1, 1, tzinfo=UTC)
+    candles = pd.DataFrame(
+        [(at, 10, 10, 10, 10, 1)],
+        columns=["date", "open", "high", "low", "close", "volume"],
+    )
+    amount = Decimal("76.65946953102832096620339037")
+
+    executed = exact_purchase(
+        candles,
+        CashFlowEvent(at, amount, "strategy"),
+        at,
+        amount,
+        Decimal("0.0026"),
+    )
+
+    assert executed is not None
+    assert executed["gross_contribution"] == (
+        executed["fee_paid"] + executed["net_contribution"]
+    )
+    assert executed["quantity"] == (
+        executed["net_contribution"] / executed["execution_price"]
+    )
 
 
 def test_fifo_normalizes_only_sub_quantum_residue() -> None:
