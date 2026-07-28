@@ -77,7 +77,7 @@ def test_unexpected_comparison_error_still_fails_the_campaign(
 
     monkeypatch.setattr(dca_campaign_scenario, "run_comparison", fail_comparison)
 
-    with pytest.raises(ValueError, match=message):
+    with pytest.raises(ValueError, match="duplicate strategy identities"):
         _run(tmp_path)
 
     payload = json.loads(
