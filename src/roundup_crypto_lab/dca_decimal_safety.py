@@ -41,6 +41,9 @@ def exact_purchase(
         return None
     gross = executed["gross_contribution"]
     fee_paid = executed["fee_paid"]
+    # Derive net from the rounded fee instead of multiplying gross independently.
+    # Decimal multiplication is correctly rounded but not distributive at finite
+    # precision, so two independent products can differ from gross by one quantum.
     net = gross - fee_paid
     executed["net_contribution"] = net
     executed["quantity"] = net / executed["execution_price"]
