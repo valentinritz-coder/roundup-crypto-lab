@@ -95,6 +95,8 @@ def _write_outputs(payload: Mapping[str, Any], output_dir: Path) -> None:
         "w", newline="", encoding="utf-8"
     ) as handle:
         fields = list(rows[0]) if rows else ["pair", "phase", "variant_id", "strategy"]
+        for row in rows[1:]:
+            fields.extend(field for field in row if field not in fields)
         writer = csv.DictWriter(handle, fieldnames=fields)
         writer.writeheader()
         writer.writerows(rows)
