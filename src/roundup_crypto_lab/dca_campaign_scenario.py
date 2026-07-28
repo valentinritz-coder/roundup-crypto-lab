@@ -124,7 +124,7 @@ def _write_json(path: Path, payload: dict[str, Any]) -> None:
 
 
 def _install_decimal_safety() -> None:
-    """Install exact campaign purchase and residual-safe Decimal primitives."""
+    """Install exact purchase decomposition and residual-safe accounting."""
     controlled_comparison._canonical = canonical_decimal
     controlled_comparison._consume_fifo = consume_fifo
     controlled_comparison.purchase = exact_purchase
