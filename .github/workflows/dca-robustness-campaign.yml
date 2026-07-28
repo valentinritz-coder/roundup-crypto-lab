@@ -1,5 +1,5 @@
 name: DCA robustness campaign
-on:
+'on':
   workflow_dispatch:
     inputs:
       phase:
