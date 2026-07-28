@@ -5,8 +5,6 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Any
 
-import pandas as pd
-
 from roundup_crypto_lab.deployment_engine import purchase as deployment_purchase
 from roundup_crypto_lab.investment_plan import CashFlowEvent
 
@@ -31,7 +29,7 @@ def normalize_residual(value: Decimal) -> Decimal:
 
 
 def exact_purchase(
-    candles: pd.DataFrame,
+    candles: Any,
     event: CashFlowEvent,
     scheduled_at: datetime,
     amount: Decimal,
