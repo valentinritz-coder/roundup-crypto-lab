@@ -20,9 +20,13 @@ permissions: {contents: read}
 concurrency:
   group: 'dca-robustness-${{ inputs.phase }}'
   cancel-in-progress: false
+
 jobs:
-  robustness:
+  prepare:
     runs-on: ubuntu-latest
+    outputs:
+      shards: '${{ steps.plan.outputs.shards }}'
+      scenario_count: '${{ steps.plan.outputs.scenario_count }}'
     defaults: {run: {shell: "bash -eo pipefail {0}"}}
     steps:
       - uses: actions/checkout@v4
@@ -30,36 +34,30 @@ jobs:
         with: {python-version: '3.12', cache: pip, cache-dependency-path: pyproject.toml}
       - name: Install project
         run: python -m pip install -e '.[dev]'
-      - name: Restore prepared Kraken cache
-        id: restore-kraken
-        uses: actions/cache/restore@v4
-        with:
-          path: user_data/data/kraken
-          key: 'kraken-ohlcv-v1-dca-robustness-${{ github.run_id }}'
-          restore-keys: kraken-ohlcv-v1-
-      - name: Validate frozen campaign inputs
+      - name: Validate and shard campaign plan
+        id: plan
         env:
           PHASE: '${{ inputs.phase }}'
           START_DATE: '${{ inputs.start_date }}'
           CAMPAIGN_PATH: '${{ inputs.campaign_path }}'
           POLICY_PATH: '${{ inputs.policy_path }}'
+          SHARD_COUNT: '20'
         run: |
-          test '${{ steps.restore-kraken.outputs.cache-hit }}' != '' || { echo 'No prepared Kraken cache was restored. Run Update Kraken data first.'; exit 1; }
           test "$CAMPAIGN_PATH" = config/dca-robustness-campaign.json
           test "$POLICY_PATH" = config/dca-robustness-policy.json
           test "$PHASE" = exploratory -o "$PHASE" = confirmation
-          mkdir -p artifacts/results artifacts/registries artifacts/diagnostics
-          python -m roundup_crypto_lab.dca_registry config/dca-strategy-registry.json --output artifacts/validated-registry.json
+          mkdir -p prepared/shards
+          python -m roundup_crypto_lab.dca_registry config/dca-strategy-registry.json --output prepared/validated-registry.json
           python -m roundup_crypto_lab.dca_robustness_orchestrator plan \
             --campaign "$CAMPAIGN_PATH" --phase "$PHASE" \
-            --output artifacts/campaign-plan.json
+            --output prepared/campaign-plan.json
           python - <<'PY'
           import json
           import os
           from datetime import datetime
           from pathlib import Path
 
-          path = Path('artifacts/campaign-plan.json')
+          path = Path('prepared/campaign-plan.json')
           rows = json.loads(path.read_text())
           raw_start = os.environ['START_DATE'].strip()
           start_date = raw_start.split('-', 1)[0] if raw_start else ''
@@ -83,20 +81,71 @@ jobs:
               rows = [row for row in rows if row['timerange'][:8] >= start_date]
               if not rows:
                   raise SystemExit(f'no campaign scenarios start on or after {start_date}')
+
           path.write_text(json.dumps(rows, indent=2, sort_keys=True) + '\n')
+          requested_shards = int(os.environ['SHARD_COUNT'])
+          shard_count = min(requested_shards, len(rows))
+          shards = [[] for _ in range(shard_count)]
+          for index, row in enumerate(rows):
+              shards[index % shard_count].append(row)
+          for shard_index, shard_rows in enumerate(shards):
+              Path(f'prepared/shards/{shard_index}.json').write_text(
+                  json.dumps(shard_rows, indent=2, sort_keys=True) + '\n'
+              )
+
+          matrix = {'shard': list(range(shard_count))}
+          with Path(os.environ['GITHUB_OUTPUT']).open('a') as output:
+              output.write(f'shards={json.dumps(matrix, separators=(",", ":"))}\n')
+              output.write(f'scenario_count={len(rows)}\n')
           print(
-              f'planned scenarios: {len(rows)}; '
+              f'planned scenarios: {len(rows)}; shards={shard_count}; '
               f'start_date={start_date or "campaign-default"}'
           )
           PY
-      - name: Materialize preregistered variants
+      - uses: actions/upload-artifact@v4
+        with:
+          name: '${{ inputs.artifact_name }}-plan-${{ github.run_id }}'
+          path: prepared/
+          if-no-files-found: error
+          retention-days: 30
+
+  robustness:
+    needs: prepare
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix: '${{ fromJSON(needs.prepare.outputs.shards) }}'
+    defaults: {run: {shell: "bash -eo pipefail {0}"}}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.12', cache: pip, cache-dependency-path: pyproject.toml}
+      - name: Install project
+        run: python -m pip install -e '.[dev]'
+      - name: Restore prepared Kraken cache
+        id: restore-kraken
+        uses: actions/cache/restore@v4
+        with:
+          path: user_data/data/kraken
+          key: 'kraken-ohlcv-v1-dca-robustness-${{ github.run_id }}'
+          restore-keys: kraken-ohlcv-v1-
+      - name: Download campaign plan
+        uses: actions/download-artifact@v4
+        with:
+          name: '${{ inputs.artifact_name }}-plan-${{ github.run_id }}'
+          path: prepared
+      - name: Materialize shard variants
         env:
           CAMPAIGN_PATH: '${{ inputs.campaign_path }}'
+          SHARD: '${{ matrix.shard }}'
         run: |
+          test '${{ steps.restore-kraken.outputs.cache-hit }}' != '' || { echo 'No prepared Kraken cache was restored. Run Update Kraken data first.'; exit 1; }
+          mkdir -p artifacts/results artifacts/registries artifacts/diagnostics
           python - <<'PY' > artifacts/variants.txt
           import json
+          import os
           from pathlib import Path
-          rows = json.loads(Path('artifacts/campaign-plan.json').read_text())
+          rows = json.loads(Path(f'prepared/shards/{os.environ["SHARD"]}.json').read_text())
           print('\n'.join(sorted({row['variant_id'] for row in rows})))
           PY
           while IFS= read -r variant_id; do
@@ -109,21 +158,36 @@ jobs:
               "artifacts/registries/${variant_id}.json" \
               --output "artifacts/registries/${variant_id}-validated.json"
           done < artifacts/variants.txt
-      - name: Run phase-isolated campaign
+      - name: Run campaign shard
         env:
           PHASE: '${{ inputs.phase }}'
+          SHARD: '${{ matrix.shard }}'
+          TOTAL_SCENARIOS: '${{ needs.prepare.outputs.scenario_count }}'
         run: |
           python - <<'PY' > artifacts/scenarios.tsv
           import json
+          import os
           from pathlib import Path
-          for row in json.loads(Path('artifacts/campaign-plan.json').read_text()):
-              print('\t'.join(str(row[key]) for key in ('pair', 'window_set_id', 'phase', 'timerange', 'variant_id')))
+          rows = json.loads(Path(f'prepared/shards/{os.environ["SHARD"]}.json').read_text())
+          for local_index, row in enumerate(rows, start=1):
+              fields = (
+                  local_index,
+                  len(rows),
+                  row['pair'],
+                  row['window_set_id'],
+                  row['phase'],
+                  row['timerange'],
+                  row['variant_id'],
+              )
+              print('\t'.join(str(value) for value in fields))
           PY
-          while IFS=$'\t' read -r pair window_set scenario_phase timerange variant_id; do
+          while IFS=$'\t' read -r local_index shard_total pair window_set scenario_phase timerange variant_id; do
             test "$scenario_phase" = "$PHASE"
             safe_pair=${pair//\//_}
             output="artifacts/results/${variant_id}/${safe_pair}/${window_set}/${timerange}"
             registry="artifacts/registries/${variant_id}.json"
+            started_at=$(date +%s)
+            echo "[shard $SHARD][$local_index/$shard_total] $pair | $timerange | $window_set | $variant_id"
             python -m roundup_crypto_lab.dca_campaign_scenario \
               --pair "$pair" --timeframe 4h --timerange "$timerange" \
               --registry "$registry" \
@@ -131,8 +195,63 @@ jobs:
               --fee 0.0026 --repository-commit "$GITHUB_SHA" --output-dir "$output" \
               --window-set-id "$window_set" --phase "$scenario_phase" \
               --variant-id "$variant_id"
+            elapsed=$(( $(date +%s) - started_at ))
+            echo "[shard $SHARD][$local_index/$shard_total] completed in ${elapsed}s"
           done < artifacts/scenarios.tsv
+      - name: Record shard status
+        if: always()
+        env:
+          JOB_STATUS: '${{ job.status }}'
+          PHASE: '${{ inputs.phase }}'
+          START_DATE: '${{ inputs.start_date }}'
+          SHARD: '${{ matrix.shard }}'
+        run: |
+          mkdir -p artifacts/diagnostics
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          Path(f'artifacts/diagnostics/shard-{os.environ["SHARD"]}-status.json').write_text(
+              json.dumps(
+                  {
+                      'schema_version': 'dca-robustness-shard-status/v1',
+                      'phase': os.environ['PHASE'],
+                      'start_date': os.environ['START_DATE'] or None,
+                      'shard': int(os.environ['SHARD']),
+                      'conclusion': os.environ['JOB_STATUS'],
+                  },
+                  indent=2,
+                  sort_keys=True,
+              ) + '\n'
+          )
+          PY
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: '${{ inputs.artifact_name }}-${{ inputs.phase }}-shard-${{ matrix.shard }}-${{ github.run_id }}'
+          path: artifacts/
+          if-no-files-found: error
+          retention-days: 30
+
+  aggregate:
+    if: always() && needs.prepare.result == 'success'
+    needs: [prepare, robustness]
+    runs-on: ubuntu-latest
+    defaults: {run: {shell: "bash -eo pipefail {0}"}}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.12', cache: pip, cache-dependency-path: pyproject.toml}
+      - name: Install project
+        run: python -m pip install -e '.[dev]'
+      - name: Download shard results
+        uses: actions/download-artifact@v4
+        with:
+          pattern: '${{ inputs.artifact_name }}-${{ inputs.phase }}-shard-*-${{ github.run_id }}'
+          path: artifacts
+          merge-multiple: true
       - name: Aggregate phase-safe robustness statistics
+        if: needs.robustness.result == 'success'
         env:
           PHASE: '${{ inputs.phase }}'
           CAMPAIGN_PATH: '${{ inputs.campaign_path }}'
@@ -146,12 +265,30 @@ jobs:
       - name: Record campaign status
         if: always()
         env:
-          JOB_STATUS: '${{ job.status }}'
+          SHARD_RESULT: '${{ needs.robustness.result }}'
           PHASE: '${{ inputs.phase }}'
           START_DATE: '${{ inputs.start_date }}'
         run: |
           mkdir -p artifacts/diagnostics
-          python -c 'import json, os, pathlib; pathlib.Path("artifacts/diagnostics/campaign-status.json").write_text(json.dumps({"schema_version":"dca-robustness-status/v1","phase":os.environ["PHASE"],"start_date":os.environ["START_DATE"] or None,"conclusion":os.environ["JOB_STATUS"]}, indent=2, sort_keys=True)+"\n")'
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          conclusion = 'success' if os.environ['SHARD_RESULT'] == 'success' else 'failure'
+          Path('artifacts/diagnostics/campaign-status.json').write_text(
+              json.dumps(
+                  {
+                      'schema_version': 'dca-robustness-status/v1',
+                      'phase': os.environ['PHASE'],
+                      'start_date': os.environ['START_DATE'] or None,
+                      'conclusion': conclusion,
+                      'shard_result': os.environ['SHARD_RESULT'],
+                  },
+                  indent=2,
+                  sort_keys=True,
+              ) + '\n'
+          )
+          PY
       - if: always()
         uses: actions/upload-artifact@v4
         with:
