@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from decimal import Decimal
+from decimal import Decimal, localcontext
 from typing import Any
 
 from roundup_crypto_lab.deployment_engine import purchase as deployment_purchase
@@ -40,13 +40,19 @@ def exact_purchase(
     if executed is None:
         return None
     gross = executed["gross_contribution"]
-    fee_paid = executed["fee_paid"]
-    # Derive net from the rounded fee instead of multiplying gross independently.
-    # Decimal multiplication is correctly rounded but not distributive at finite
-    # precision, so two independent products can differ from gross by one quantum.
-    net = gross - fee_paid
+    execution_price = executed["execution_price"]
+    # Pilot allocations can already occupy the default 28-digit Decimal context.
+    # Compute the decomposition with enough guard digits that adding fee and net
+    # under the normal context rounds back to the original gross exactly.
+    precision = max(50, len(gross.as_tuple().digits) + len(fee.as_tuple().digits) + 10)
+    with localcontext() as context:
+        context.prec = precision
+        fee_paid = gross * fee
+        net = gross - fee_paid
+        quantity = net / execution_price
+    executed["fee_paid"] = fee_paid
     executed["net_contribution"] = net
-    executed["quantity"] = net / executed["execution_price"]
+    executed["quantity"] = quantity
     return executed
 
 
