@@ -5,6 +5,9 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Any
 
+from roundup_crypto_lab.deployment_engine import purchase as deployment_purchase
+from roundup_crypto_lab.investment_plan import CashFlowEvent
+
 ACCOUNTING_EPSILON = Decimal("1e-24")
 
 
@@ -23,6 +26,33 @@ def normalize_residual(value: Decimal) -> Decimal:
     if not value.is_finite():
         raise ValueError("accounting balances must be finite")
     return Decimal("0") if abs(value) <= ACCOUNTING_EPSILON else value
+
+
+def exact_purchase(
+    candles: Any,
+    event: CashFlowEvent,
+    scheduled_at: datetime,
+    amount: Decimal,
+    fee: Decimal,
+) -> dict[str, Any] | None:
+    """Build a purchase satisfying the ledger identities in the engine context."""
+    executed = deployment_purchase(candles, event, scheduled_at, amount, fee)
+    if executed is None:
+        return None
+    gross = executed["gross_contribution"]
+    execution_price = executed["execution_price"]
+    # First obtain the normally rounded net amount. Then derive the stored fee as
+    # its exact complement, so fee + net reproduces gross under the same Decimal
+    # context used by validate_accounting_invariants(). Quantity is likewise
+    # computed in that context because the invariant recomputes net / price there.
+    provisional_fee = gross * fee
+    net = gross - provisional_fee
+    fee_paid = gross - net
+    quantity = net / execution_price
+    executed["fee_paid"] = fee_paid
+    executed["net_contribution"] = net
+    executed["quantity"] = quantity
+    return executed
 
 
 def consume_fifo(
