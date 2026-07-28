@@ -40,12 +40,12 @@ def test_exact_purchase_preserves_ledger_identity_for_fractional_amount() -> Non
     )
 
     assert executed is not None
-    assert executed["gross_contribution"] == (
-        executed["fee_paid"] + executed["net_contribution"]
-    )
-    assert executed["quantity"] == (
+    fee_plus_net = executed["fee_paid"] + executed["net_contribution"]
+    recomputed_quantity = (
         executed["net_contribution"] / executed["execution_price"]
     )
+    assert executed["gross_contribution"] == fee_plus_net
+    assert executed["quantity"] == recomputed_quantity
 
 
 def test_fifo_normalizes_only_sub_quantum_residue() -> None:
