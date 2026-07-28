@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from decimal import Decimal, localcontext
+from decimal import Decimal
 from typing import Any
 
 from roundup_crypto_lab.deployment_engine import purchase as deployment_purchase
@@ -35,21 +35,20 @@ def exact_purchase(
     amount: Decimal,
     fee: Decimal,
 ) -> dict[str, Any] | None:
-    """Build a purchase whose gross amount is exactly fee plus net contribution."""
+    """Build a purchase satisfying the ledger identities in the engine context."""
     executed = deployment_purchase(candles, event, scheduled_at, amount, fee)
     if executed is None:
         return None
     gross = executed["gross_contribution"]
     execution_price = executed["execution_price"]
-    # Pilot allocations can already occupy the default 28-digit Decimal context.
-    # Compute the decomposition with enough guard digits that adding fee and net
-    # under the normal context rounds back to the original gross exactly.
-    precision = max(50, len(gross.as_tuple().digits) + len(fee.as_tuple().digits) + 10)
-    with localcontext() as context:
-        context.prec = precision
-        fee_paid = gross * fee
-        net = gross - fee_paid
-        quantity = net / execution_price
+    # First obtain the normally rounded net amount. Then derive the stored fee as
+    # its exact complement, so fee + net reproduces gross under the same Decimal
+    # context used by validate_accounting_invariants(). Quantity is likewise
+    # computed in that context because the invariant recomputes net / price there.
+    provisional_fee = gross * fee
+    net = gross - provisional_fee
+    fee_paid = gross - net
+    quantity = net / execution_price
     executed["fee_paid"] = fee_paid
     executed["net_contribution"] = net
     executed["quantity"] = quantity
