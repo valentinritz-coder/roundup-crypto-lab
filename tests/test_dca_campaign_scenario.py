@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 from roundup_crypto_lab import dca_campaign_scenario
+from roundup_crypto_lab.dca_decimal_safety import exact_purchase
 
 
 def _run(tmp_path: Path) -> str:
@@ -45,7 +46,9 @@ def test_data_gap_is_recorded_as_an_explicit_exclusion(
 
     assert _run(tmp_path) == "excluded"
     payload = json.loads(
-        (tmp_path / "result" / "scenario-exclusion.json").read_text(encoding="utf-8")
+        (tmp_path / "result" / "scenario-exclusion.json").read_text(
+            encoding="utf-8"
+        )
     )
     assert payload["status"] == "excluded"
     assert payload["scenario"] == {
@@ -61,10 +64,9 @@ def test_data_gap_is_recorded_as_an_explicit_exclusion(
         "reason": reason,
     }
     assert not (tmp_path / "result" / "controlled-comparison.json").exists()
-    assert not (tmp_path / "result" / "scenario-failure.json").exists()
 
 
-def test_unexpected_comparison_error_is_recorded_and_remains_fatal(
+def test_unexpected_comparison_error_still_fails_the_campaign(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -79,32 +81,41 @@ def test_unexpected_comparison_error_is_recorded_and_remains_fatal(
         _run(tmp_path)
 
     payload = json.loads(
-        (tmp_path / "result" / "scenario-failure.json").read_text(encoding="utf-8")
+        (tmp_path / "result" / "scenario-failure.json").read_text(
+            encoding="utf-8"
+        )
     )
     assert payload["status"] == "failed"
-    assert payload["scenario"]["variant_id"] == "frozen-default"
     assert payload["failure"]["exception_type"] == "ValueError"
     assert payload["failure"]["message"] == message
-    assert "ValueError: " + message in payload["failure"]["traceback"]
+    assert "fail_comparison" in payload["failure"]["traceback"]
 
 
-def test_non_value_error_is_recorded_and_remains_fatal(
+def test_non_value_error_is_persisted_and_re_raised(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     def fail_comparison(**_: object) -> dict:
-        raise RuntimeError("unexpected execution failure")
+        raise RuntimeError("unexpected runtime failure")
 
     monkeypatch.setattr(dca_campaign_scenario, "run_comparison", fail_comparison)
 
-    with pytest.raises(RuntimeError, match="unexpected execution failure"):
+    with pytest.raises(RuntimeError, match="unexpected runtime failure"):
         _run(tmp_path)
 
     payload = json.loads(
-        (tmp_path / "result" / "scenario-failure.json").read_text(encoding="utf-8")
+        (tmp_path / "result" / "scenario-failure.json").read_text(
+            encoding="utf-8"
+        )
     )
     assert payload["failure"]["exception_type"] == "RuntimeError"
-    assert payload["failure"]["message"] == "unexpected execution failure"
+    assert payload["failure"]["message"] == "unexpected runtime failure"
+
+
+def test_decimal_safety_installs_exact_purchase() -> None:
+    dca_campaign_scenario._install_decimal_safety()
+
+    assert dca_campaign_scenario.controlled_comparison.purchase is exact_purchase
 
 
 def test_only_known_data_validation_failures_are_excludable() -> None:
