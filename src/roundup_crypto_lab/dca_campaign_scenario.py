@@ -7,8 +7,9 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
+from roundup_crypto_lab import dca_controlled_comparison as controlled_comparison
 from roundup_crypto_lab.dca_baselines import DEFAULT_STRATEGY_REGISTRY
-from roundup_crypto_lab.dca_controlled_comparison import run_comparison, write_outputs
+from roundup_crypto_lab.dca_decimal_safety import canonical_decimal, consume_fifo
 
 EXCLUSION_SCHEMA_VERSION = "dca-campaign-scenario-exclusion/v1"
 EXCLUDABLE_DATA_ERRORS = (
@@ -57,6 +58,12 @@ def exclusion_payload(
     }
 
 
+def _install_decimal_safety() -> None:
+    """Keep campaign execution strict while normalizing sub-quantum Decimal residue."""
+    controlled_comparison._canonical = canonical_decimal
+    controlled_comparison._consume_fifo = consume_fifo
+
+
 def run_campaign_scenario(
     *,
     data_dir: Path,
@@ -76,8 +83,9 @@ def run_campaign_scenario(
 ) -> str:
     """Run a comparison, or persist an explicit exclusion without failing the campaign."""
     output_dir.mkdir(parents=True, exist_ok=True)
+    _install_decimal_safety()
     try:
-        payload = run_comparison(
+        payload = controlled_comparison.run_comparison(
             data_dir=data_dir,
             pair=pair,
             timeframe=timeframe,
@@ -112,7 +120,7 @@ def run_campaign_scenario(
         "phase": phase,
         "variant_id": variant_id,
     }
-    write_outputs(
+    controlled_comparison.write_outputs(
         payload,
         output_dir,
         registry_path=registry_path,
