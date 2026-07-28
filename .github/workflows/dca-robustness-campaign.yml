@@ -8,6 +8,11 @@ on:
         default: exploratory
         type: choice
         options: [exploratory, confirmation]
+      start_date:
+        description: Optional earliest scenario start date in YYYYMMDD format
+        required: false
+        default: ""
+        type: string
       campaign_path: {description: Frozen campaign definition, required: true, default: "config/dca-robustness-campaign.json", type: string}
       policy_path: {description: Frozen classification policy, required: true, default: "config/dca-robustness-policy.json", type: string}
       artifact_name: {description: Artifact prefix, required: true, default: "dca-robustness-campaign", type: string}
@@ -35,6 +40,7 @@ jobs:
       - name: Validate frozen campaign inputs
         env:
           PHASE: '${{ inputs.phase }}'
+          START_DATE: '${{ inputs.start_date }}'
           CAMPAIGN_PATH: '${{ inputs.campaign_path }}'
           POLICY_PATH: '${{ inputs.policy_path }}'
         run: |
@@ -47,6 +53,26 @@ jobs:
           python -m roundup_crypto_lab.dca_robustness_orchestrator plan \
             --campaign "$CAMPAIGN_PATH" --phase "$PHASE" \
             --output artifacts/campaign-plan.json
+          python - <<'PY'
+          import json
+          import os
+          from datetime import datetime
+          from pathlib import Path
+
+          path = Path('artifacts/campaign-plan.json')
+          rows = json.loads(path.read_text())
+          start_date = os.environ['START_DATE'].strip()
+          if start_date:
+              try:
+                  datetime.strptime(start_date, '%Y%m%d')
+              except ValueError as error:
+                  raise SystemExit('start_date must use YYYYMMDD') from error
+              rows = [row for row in rows if row['timerange'][:8] >= start_date]
+              if not rows:
+                  raise SystemExit(f'no campaign scenarios start on or after {start_date}')
+          path.write_text(json.dumps(rows, indent=2, sort_keys=True) + '\n')
+          print(f'planned scenarios: {len(rows)}; start_date={start_date or "campaign-default"}')
+          PY
       - name: Materialize preregistered variants
         env:
           CAMPAIGN_PATH: '${{ inputs.campaign_path }}'
@@ -103,10 +129,13 @@ jobs:
           cat "artifacts/robustness/$PHASE/job-summary.md" >> "$GITHUB_STEP_SUMMARY"
       - name: Record campaign status
         if: always()
-        env: {JOB_STATUS: '${{ job.status }}', PHASE: '${{ inputs.phase }}'}
+        env:
+          JOB_STATUS: '${{ job.status }}'
+          PHASE: '${{ inputs.phase }}'
+          START_DATE: '${{ inputs.start_date }}'
         run: |
           mkdir -p artifacts/diagnostics
-          python -c 'import json, os, pathlib; pathlib.Path("artifacts/diagnostics/campaign-status.json").write_text(json.dumps({"schema_version":"dca-robustness-status/v1","phase":os.environ["PHASE"],"conclusion":os.environ["JOB_STATUS"]}, indent=2, sort_keys=True)+"\n")'
+          python -c 'import json, os, pathlib; pathlib.Path("artifacts/diagnostics/campaign-status.json").write_text(json.dumps({"schema_version":"dca-robustness-status/v1","phase":os.environ["PHASE"],"start_date":os.environ["START_DATE"] or None,"conclusion":os.environ["JOB_STATUS"]}, indent=2, sort_keys=True)+"\n")'
       - if: always()
         uses: actions/upload-artifact@v4
         with:
