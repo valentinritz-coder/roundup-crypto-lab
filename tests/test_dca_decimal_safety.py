@@ -56,7 +56,10 @@ def test_fifo_normalizes_only_sub_quantum_residue() -> None:
     ]
 
     allocations = consume_fifo(pending, Decimal("1"))
-    allocated = sum((Decimal(row["amount"]) for row in allocations), Decimal("0"))
+    allocated = sum(
+        (Decimal(row["amount"]) for row in allocations),
+        Decimal("0"),
+    )
 
     assert pending == []
     assert abs(Decimal("1") - allocated) <= ACCOUNTING_EPSILON
