@@ -61,22 +61,50 @@ def test_data_gap_is_recorded_as_an_explicit_exclusion(
         "reason": reason,
     }
     assert not (tmp_path / "result" / "controlled-comparison.json").exists()
+    assert not (tmp_path / "result" / "scenario-failure.json").exists()
 
 
-def test_unexpected_comparison_error_still_fails_the_campaign(
+def test_unexpected_comparison_error_is_recorded_and_remains_fatal(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    message = "controlled comparison contains duplicate strategy identities"
+
+    def fail_comparison(**_: object) -> dict:
+        raise ValueError(message)
+
+    monkeypatch.setattr(dca_campaign_scenario, "run_comparison", fail_comparison)
+
+    with pytest.raises(ValueError, match=message):
+        _run(tmp_path)
+
+    payload = json.loads(
+        (tmp_path / "result" / "scenario-failure.json").read_text(encoding="utf-8")
+    )
+    assert payload["status"] == "failed"
+    assert payload["scenario"]["variant_id"] == "frozen-default"
+    assert payload["failure"]["exception_type"] == "ValueError"
+    assert payload["failure"]["message"] == message
+    assert "ValueError: " + message in payload["failure"]["traceback"]
+
+
+def test_non_value_error_is_recorded_and_remains_fatal(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     def fail_comparison(**_: object) -> dict:
-        raise ValueError("controlled comparison contains duplicate strategy identities")
+        raise RuntimeError("unexpected execution failure")
 
     monkeypatch.setattr(dca_campaign_scenario, "run_comparison", fail_comparison)
 
-    with pytest.raises(
-        ValueError,
-        match="controlled comparison contains duplicate strategy identities",
-    ):
+    with pytest.raises(RuntimeError, match="unexpected execution failure"):
         _run(tmp_path)
+
+    payload = json.loads(
+        (tmp_path / "result" / "scenario-failure.json").read_text(encoding="utf-8")
+    )
+    assert payload["failure"]["exception_type"] == "RuntimeError"
+    assert payload["failure"]["message"] == "unexpected execution failure"
 
 
 def test_only_known_data_validation_failures_are_excludable() -> None:
