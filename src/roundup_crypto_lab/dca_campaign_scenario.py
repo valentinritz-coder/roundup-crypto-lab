@@ -10,7 +10,11 @@ from typing import Any
 
 from roundup_crypto_lab import dca_controlled_comparison as controlled_comparison
 from roundup_crypto_lab.dca_baselines import DEFAULT_STRATEGY_REGISTRY
-from roundup_crypto_lab.dca_decimal_safety import canonical_decimal, consume_fifo
+from roundup_crypto_lab.dca_decimal_safety import (
+    canonical_decimal,
+    consume_fifo,
+    exact_purchase,
+)
 
 run_comparison = controlled_comparison.run_comparison
 write_outputs = controlled_comparison.write_outputs
@@ -120,9 +124,10 @@ def _write_json(path: Path, payload: dict[str, Any]) -> None:
 
 
 def _install_decimal_safety() -> None:
-    """Keep campaign execution strict while normalizing sub-quantum Decimal residue."""
+    """Install exact campaign purchase and residual-safe Decimal primitives."""
     controlled_comparison._canonical = canonical_decimal
     controlled_comparison._consume_fifo = consume_fifo
+    controlled_comparison.purchase = exact_purchase
 
 
 def run_campaign_scenario(
