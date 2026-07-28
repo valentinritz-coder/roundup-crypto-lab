@@ -82,25 +82,13 @@ jobs:
             safe_pair=${pair//\//_}
             output="artifacts/results/${variant_id}/${safe_pair}/${window_set}/${timerange}"
             registry="artifacts/registries/${variant_id}.json"
-            mkdir -p "$output"
-            python -m roundup_crypto_lab.dca_controlled_comparison \
+            python -m roundup_crypto_lab.dca_campaign_scenario \
               --pair "$pair" --timeframe 4h --timerange "$timerange" \
               --registry "$registry" \
               --initial-capital 40 --monthly-budget 40 --contribution-day 1 \
-              --fee 0.0026 --repository-commit "$GITHUB_SHA" --output-dir "$output"
-            OUTPUT="$output" WINDOW_SET="$window_set" PHASE="$scenario_phase" VARIANT_ID="$variant_id" python - <<'PY'
-          import json
-          import os
-          from pathlib import Path
-          path = Path(os.environ['OUTPUT']) / 'controlled-comparison.json'
-          payload = json.loads(path.read_text())
-          payload['campaign'] = {
-              'window_set_id': os.environ['WINDOW_SET'],
-              'phase': os.environ['PHASE'],
-              'variant_id': os.environ['VARIANT_ID'],
-          }
-          path.write_text(json.dumps(payload, indent=2, sort_keys=True) + '\n')
-          PY
+              --fee 0.0026 --repository-commit "$GITHUB_SHA" --output-dir "$output" \
+              --window-set-id "$window_set" --phase "$scenario_phase" \
+              --variant-id "$variant_id"
           done < artifacts/scenarios.tsv
       - name: Aggregate phase-safe robustness statistics
         env:
