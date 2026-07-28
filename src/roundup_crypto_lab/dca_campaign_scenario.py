@@ -11,6 +11,9 @@ from roundup_crypto_lab import dca_controlled_comparison as controlled_compariso
 from roundup_crypto_lab.dca_baselines import DEFAULT_STRATEGY_REGISTRY
 from roundup_crypto_lab.dca_decimal_safety import canonical_decimal, consume_fifo
 
+run_comparison = controlled_comparison.run_comparison
+write_outputs = controlled_comparison.write_outputs
+
 EXCLUSION_SCHEMA_VERSION = "dca-campaign-scenario-exclusion/v1"
 EXCLUDABLE_DATA_ERRORS = (
     "missing Kraken data for ",
@@ -85,7 +88,7 @@ def run_campaign_scenario(
     output_dir.mkdir(parents=True, exist_ok=True)
     _install_decimal_safety()
     try:
-        payload = controlled_comparison.run_comparison(
+        payload = run_comparison(
             data_dir=data_dir,
             pair=pair,
             timeframe=timeframe,
@@ -120,7 +123,7 @@ def run_campaign_scenario(
         "phase": phase,
         "variant_id": variant_id,
     }
-    controlled_comparison.write_outputs(
+    write_outputs(
         payload,
         output_dir,
         registry_path=registry_path,
