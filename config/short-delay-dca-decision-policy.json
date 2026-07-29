@@ -1,0 +1,32 @@
+{
+  "schema_version": "short-delay-dca-decision-policy/v1",
+  "policy_id": "short-delay-dca-final-decision-2026-07-29",
+  "control_strategy_id": "monthly_dca_control",
+  "candidate_strategy_ids": [
+    "negative_7d_return_delay",
+    "below_7d_sma_delay",
+    "confirmed_short_decline_delay"
+  ],
+  "primary_cost_profile_id": "proportional-plus-spread-v1",
+  "minimum_window_win_rate": "0.60",
+  "minimum_positive_window_set_count": 3,
+  "minimum_median_terminal_value_improvement_ratio": "0.001",
+  "maximum_worst_window_deterioration_ratio": "0.005",
+  "minimum_btc_improvement_rate": "0.55",
+  "maximum_forced_release_rate": "0.50",
+  "require_positive_long_horizon_terminal_value": true,
+  "require_positive_long_horizon_btc_quantity": true,
+  "tie_break_order": [
+    "negative_7d_return_delay",
+    "below_7d_sma_delay",
+    "confirmed_short_decline_delay"
+  ],
+  "fallback_decision": "retain_monthly_dca",
+  "fallback_statement": "Retain MonthlyDCA, invest each monthly contribution immediately, and end further pilotage research.",
+  "disclosures": [
+    "Overlapping rolling windows are dependent observations and are not treated as independent trials.",
+    "The continuous path is a historical complement, not an independent confirmation holdout.",
+    "Risk reduction caused by holding more cash cannot qualify a rule for adoption without positive return or BTC accumulation evidence.",
+    "Historical execution is not a guarantee of future performance."
+  ]
+}
