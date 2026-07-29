@@ -208,7 +208,7 @@ def _execution_timestamp(
     observations: Sequence[CompletedDailyClose],
 ) -> tuple[datetime, str, tuple[DelayDecision, ...]]:
     contributed_at = _as_utc(event.contributed_at, "contribution timestamp")
-    if strategy_id == "monthly_dca_control":
+    if strategy_id == "monthly_dca_control" or event.kind != "monthly":
         return contributed_at, "control_immediate", ()
 
     closes, latest = _visible_series(observations, contributed_at)
@@ -329,7 +329,7 @@ def execute_short_delay_strategy(
         executed_at = datetime.fromisoformat(execution["executed_at"]).astimezone(UTC)
         contributed_at = _as_utc(event.contributed_at, "contribution timestamp")
         waiting = executed_at - contributed_at
-        maximum_wait = timedelta(days=MAXIMUM_DELAY_DAYS, hours=4)
+        maximum_wait = timedelta(days=MAXIMUM_DELAY_DAYS)
         if waiting > maximum_wait:
             raise ValueError(
                 "contribution remained pending beyond the bounded execution window"
