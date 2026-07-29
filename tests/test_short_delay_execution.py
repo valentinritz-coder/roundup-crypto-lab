@@ -154,8 +154,8 @@ def test_decline_releases_after_signal_clears() -> None:
 def test_confirmed_decline_releases_on_next_positive_close() -> None:
     start = datetime(2026, 1, 1, tzinfo=UTC)
     closes = [Decimal("200") - index for index in range(25)]
-    closes[19] = Decimal("190")
-    closes[20] = Decimal("191")
+    closes[19] = Decimal("180")
+    closes[20] = Decimal("181")
     frame = candles(start, closes)
     contribution_at = start + timedelta(days=20)
     result = execute_short_delay_strategy(
