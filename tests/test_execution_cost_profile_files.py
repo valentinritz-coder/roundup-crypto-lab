@@ -2,7 +2,6 @@ from pathlib import Path
 
 from roundup_crypto_lab.execution_costs import load_cost_profile
 
-
 PROFILE_DIR = Path("config/execution-cost-profiles")
 
 
