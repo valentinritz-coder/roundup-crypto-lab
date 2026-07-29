@@ -1,0 +1,62 @@
+{
+  "protocol_schema_version": 1,
+  "protocol_id": "short_delay_dca_btc_eur_v1",
+  "market": "BTC/EUR",
+  "source_timeframe": "4h",
+  "daily_timezone": "UTC",
+  "contribution_policy": {
+    "source": "MonthlyDCA",
+    "same_dates_and_amounts": true,
+    "maximum_delay_calendar_days": 7,
+    "full_deployment_required": true,
+    "reserve_may_cross_contribution_cycle": false,
+    "selling_allowed": false,
+    "borrowing_allowed": false,
+    "future_contributions_may_be_anticipated": false
+  },
+  "observation_contract": {
+    "daily_close_definition": "close of the 4h candle ending at 00:00 UTC for the completed UTC day",
+    "decision_timestamp": "00:00 UTC on each calendar day",
+    "latest_visible_daily_observation": "the UTC day ending at the decision timestamp",
+    "completed_candles_only": true,
+    "missing_observation_policy": "deploy_immediately",
+    "weekend_policy": "calendar_days_are_evaluated_normally",
+    "month_boundary_policy": "pending_contributions_remain_independent_and_must_deploy_by_their_own_deadline"
+  },
+  "strategies": [
+    {
+      "strategy_id": "monthly_dca_control",
+      "kind": "control",
+      "parameters": {},
+      "entry_rule": "deploy_immediately"
+    },
+    {
+      "strategy_id": "negative_7d_return_delay",
+      "kind": "candidate",
+      "parameters": {
+        "lookback_days": 7,
+        "maximum_delay_calendar_days": 7
+      },
+      "entry_rule": "delay_while_latest_completed_close_is_below_close_7_completed_days_earlier"
+    },
+    {
+      "strategy_id": "below_7d_sma_delay",
+      "kind": "candidate",
+      "parameters": {
+        "moving_average_days": 7,
+        "maximum_delay_calendar_days": 7
+      },
+      "entry_rule": "delay_while_latest_completed_close_is_below_sma_of_previous_7_completed_daily_closes"
+    },
+    {
+      "strategy_id": "confirmed_short_decline_delay",
+      "kind": "candidate",
+      "parameters": {
+        "moving_average_days": 7,
+        "moving_average_slope_lookback_days": 3,
+        "maximum_delay_calendar_days": 7
+      },
+      "entry_rule": "delay_when_latest_completed_close_is_below_7d_sma_and_7d_sma_is_below_its_value_3_completed_days_earlier_then_deploy_on_first_completed_positive_daily_close"
+    }
+  ]
+}
