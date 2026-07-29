@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from datetime import date, datetime, timedelta, timezone
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
 
@@ -51,17 +51,17 @@ def test_current_incomplete_daily_candle_is_not_visible() -> None:
     for hour in (4, 8, 12, 16, 20):
         candles.append(
             (
-                datetime(2026, 7, 1, hour, tzinfo=timezone.utc),
+                datetime(2026, 7, 1, hour, tzinfo=UTC),
                 Decimal(str(hour)),
             )
         )
-    candles.append((datetime(2026, 7, 2, 0, tzinfo=timezone.utc), Decimal("99")))
+    candles.append((datetime(2026, 7, 2, 0, tzinfo=UTC), Decimal("99")))
 
     before_close = completed_utc_daily_observations(
-        candles, datetime(2026, 7, 1, 23, 59, tzinfo=timezone.utc)
+        candles, datetime(2026, 7, 1, 23, 59, tzinfo=UTC)
     )
     at_close = completed_utc_daily_observations(
-        candles, datetime(2026, 7, 2, 0, tzinfo=timezone.utc)
+        candles, datetime(2026, 7, 2, 0, tzinfo=UTC)
     )
 
     assert before_close == ()
@@ -70,12 +70,12 @@ def test_current_incomplete_daily_candle_is_not_visible() -> None:
 
 def test_daily_observation_requires_all_six_completed_4h_candles() -> None:
     candles = [
-        (datetime(2026, 7, 1, hour, tzinfo=timezone.utc), Decimal("100"))
+        (datetime(2026, 7, 1, hour, tzinfo=UTC), Decimal("100"))
         for hour in (4, 8, 12, 20)
     ]
-    candles.append((datetime(2026, 7, 2, 0, tzinfo=timezone.utc), Decimal("90")))
+    candles.append((datetime(2026, 7, 2, 0, tzinfo=UTC), Decimal("90")))
     assert completed_utc_daily_observations(
-        candles, datetime(2026, 7, 2, 0, tzinfo=timezone.utc)
+        candles, datetime(2026, 7, 2, 0, tzinfo=UTC)
     ) == ()
 
 
