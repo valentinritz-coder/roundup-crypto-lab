@@ -12,7 +12,7 @@ from pathlib import Path
 from statistics import median
 from typing import Any
 
-from roundup_crypto_lab.short_delay_campaign import PROFILES, STRATEGIES, load_campaign, plan_campaign
+from roundup_crypto_lab.short_delay_campaign import STRATEGIES, load_campaign, plan_campaign
 
 POLICY_SCHEMA_VERSION = "short-delay-dca-decision-policy/v1"
 ANALYSIS_SCHEMA_VERSION = "short-delay-dca-analysis/v1"
@@ -36,6 +36,10 @@ def _decimal(value: object) -> Decimal:
 
 def _ratio(numerator: Decimal, denominator: Decimal) -> Decimal:
     return Decimal("0") if denominator == 0 else numerator / denominator
+
+
+def _median(values: Sequence[Decimal]) -> Decimal:
+    return Decimal(str(median(values)))
 
 
 def load_policy(path: Path) -> dict[str, Any]:
@@ -138,24 +142,40 @@ def _results_by_strategy(scenario: Mapping[str, Any]) -> dict[str, Mapping[str, 
     return results
 
 
+def _curve_metrics(result: Mapping[str, Any]) -> tuple[Decimal, Decimal]:
+    curve = result["equity_curve"]
+    if not curve:
+        raise ValueError("strategy result has no equity curve")
+    cash = [_decimal(row["cash_balance"]) for row in curve]
+    values = [_decimal(row["portfolio_value"]) for row in curve]
+    invested_ratios = [
+        Decimal("1") - _ratio(cash_value, portfolio_value)
+        for cash_value, portfolio_value in zip(cash, values, strict=True)
+    ]
+    return sum(cash, Decimal("0")) / Decimal(len(cash)), sum(
+        invested_ratios,
+        Decimal("0"),
+    ) / Decimal(len(invested_ratios))
+
+
 def _contribution_rows(
     scenario: Mapping[str, Any],
     control: Mapping[str, Any],
     challenger: Mapping[str, Any],
 ) -> list[dict[str, Any]]:
     metadata = scenario["scenario"]
-    control_allocations = {
+    baseline_rows = {
         str(row["contribution_id"]): row for row in control["funding_allocations"]
     }
-    challenger_allocations = {
+    candidate_rows = {
         str(row["contribution_id"]): row for row in challenger["funding_allocations"]
     }
-    if set(control_allocations) != set(challenger_allocations):
+    if set(baseline_rows) != set(candidate_rows):
         raise ValueError("challenger contribution identities differ from MonthlyDCA")
     rows: list[dict[str, Any]] = []
-    for contribution_id in sorted(control_allocations):
-        baseline = control_allocations[contribution_id]
-        candidate = challenger_allocations[contribution_id]
+    for contribution_id in sorted(baseline_rows):
+        baseline = baseline_rows[contribution_id]
+        candidate = candidate_rows[contribution_id]
         baseline_price = _decimal(baseline["execution_price"])
         candidate_price = _decimal(candidate["execution_price"])
         baseline_quantity = _decimal(baseline["btc_quantity"])
@@ -205,6 +225,7 @@ def _window_row(
     control_costs = control["execution_costs"]
     challenger_costs = challenger["execution_costs"]
     diagnostics = challenger["delay_diagnostics"]
+    average_cash, deployment_ratio = _curve_metrics(challenger)
     return {
         "scenario_id": metadata["scenario_id"],
         "research_section": metadata["research_section"],
@@ -229,18 +250,14 @@ def _window_row(
         "average_delay_days": _decimal(diagnostics["average_delay_days"]),
         "maximum_delay_days": _decimal(diagnostics["maximum_delay_days"]),
         "forced_release_rate": _ratio(
-            Decimal(str(diagnostics.get("forced_contribution_count", 0))),
+            Decimal(str(diagnostics["forced_deployment_count"])),
             Decimal(str(diagnostics["contribution_count"])),
         ),
-        "maximum_drawdown": _decimal(challenger["maximum_drawdown_exact"]),
-        "monthly_dca_maximum_drawdown": _decimal(control["maximum_drawdown_exact"]),
-        "average_cash_balance": _decimal(challenger["average_cash_balance_exact"]),
-        "capital_deployment_ratio": _decimal(challenger["capital_deployment_ratio_exact"]),
+        "maximum_drawdown": _decimal(challenger["max_drawdown_time_weighted"]),
+        "monthly_dca_maximum_drawdown": _decimal(control["max_drawdown_time_weighted"]),
+        "average_cash_balance": average_cash,
+        "capital_deployment_ratio": deployment_ratio,
     }
-
-
-def _median(values: Sequence[Decimal]) -> Decimal:
-    return Decimal(str(median(values)))
 
 
 def _rule_summaries(
@@ -290,42 +307,43 @@ def _rule_summaries(
         btc_differences = [_decimal(row["btc_quantity_difference"]) for row in multi]
         forced = [_decimal(row["forced_release_rate"]) for row in multi]
         contribution_btc = [_decimal(row["btc_quantity_difference"]) for row in contributions]
-        summary = {
-            "strategy_id": strategy_id,
-            "primary_cost_profile_id": primary,
-            "window_count": len(multi),
-            "median_terminal_value_difference_ratio": _median(value_differences),
-            "worst_terminal_value_difference_ratio": min(value_differences),
-            "window_win_rate": _ratio(
-                Decimal(sum(value > 0 for value in value_differences)),
-                Decimal(len(value_differences)),
-            ),
-            "positive_window_set_count": sum(
-                row["median_terminal_value_difference_ratio"] > 0
-                and row["win_rate"] >= _decimal(policy["minimum_window_win_rate"])
-                for row in set_rows
-            ),
-            "window_set_evidence": set_rows,
-            "median_btc_quantity_difference": _median(btc_differences),
-            "btc_positive_window_rate": _ratio(
-                Decimal(sum(value > 0 for value in btc_differences)),
-                Decimal(len(btc_differences)),
-            ),
-            "contribution_btc_improvement_rate": _ratio(
-                Decimal(sum(value > 0 for value in contribution_btc)),
-                Decimal(len(contribution_btc)),
-            ),
-            "median_contribution_btc_difference": _median(contribution_btc),
-            "average_forced_release_rate": sum(forced, Decimal("0"))
-            / Decimal(len(forced)),
-            "long_horizon_terminal_value_difference_ratio": _decimal(
-                complement[0]["terminal_value_difference_ratio"]
-            ),
-            "long_horizon_btc_quantity_difference": _decimal(
-                complement[0]["btc_quantity_difference"]
-            ),
-        }
-        summaries.append(summary)
+        summaries.append(
+            {
+                "strategy_id": strategy_id,
+                "primary_cost_profile_id": primary,
+                "window_count": len(multi),
+                "median_terminal_value_difference_ratio": _median(value_differences),
+                "worst_terminal_value_difference_ratio": min(value_differences),
+                "window_win_rate": _ratio(
+                    Decimal(sum(value > 0 for value in value_differences)),
+                    Decimal(len(value_differences)),
+                ),
+                "positive_window_set_count": sum(
+                    row["median_terminal_value_difference_ratio"] > 0
+                    and row["win_rate"] >= _decimal(policy["minimum_window_win_rate"])
+                    for row in set_rows
+                ),
+                "window_set_evidence": set_rows,
+                "median_btc_quantity_difference": _median(btc_differences),
+                "btc_positive_window_rate": _ratio(
+                    Decimal(sum(value > 0 for value in btc_differences)),
+                    Decimal(len(btc_differences)),
+                ),
+                "contribution_btc_improvement_rate": _ratio(
+                    Decimal(sum(value > 0 for value in contribution_btc)),
+                    Decimal(len(contribution_btc)),
+                ),
+                "median_contribution_btc_difference": _median(contribution_btc),
+                "average_forced_release_rate": sum(forced, Decimal("0"))
+                / Decimal(len(forced)),
+                "long_horizon_terminal_value_difference_ratio": _decimal(
+                    complement[0]["terminal_value_difference_ratio"]
+                ),
+                "long_horizon_btc_quantity_difference": _decimal(
+                    complement[0]["btc_quantity_difference"]
+                ),
+            }
+        )
     return summaries
 
 
@@ -360,7 +378,6 @@ def _qualifies(summary: Mapping[str, Any], policy: Mapping[str, Any]) -> tuple[b
 
 
 def _write_csv(path: Path, rows: Sequence[Mapping[str, Any]]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
     fields: list[str] = []
     for row in rows:
         for key in row:
@@ -389,7 +406,6 @@ def analyze_campaign(
     )
     if not coverage["matrix_complete"]:
         raise ValueError("complete 52-scenario matrix required for final analysis")
-
     window_rows: list[dict[str, Any]] = []
     contribution_rows: list[dict[str, Any]] = []
     for scenario in scenarios.values():
@@ -399,37 +415,33 @@ def analyze_campaign(
             challenger = results[strategy_id]
             window_rows.append(_window_row(scenario, control, challenger))
             contribution_rows.extend(_contribution_rows(scenario, control, challenger))
-
     summaries = _rule_summaries(window_rows, contribution_rows, policy)
+    tie_break = tuple(policy["tie_break_order"])
     ranked = sorted(
         summaries,
         key=lambda row: (
             -_decimal(row["median_terminal_value_difference_ratio"]),
             -_decimal(row["worst_terminal_value_difference_ratio"]),
-            tuple(policy["tie_break_order"]).index(row["strategy_id"]),
+            tie_break.index(row["strategy_id"]),
         ),
     )
-    qualifications = []
     for rank, summary in enumerate(ranked, start=1):
         passed, failed = _qualifies(summary, policy)
         summary["rank"] = rank
         summary["adoption_qualified"] = passed
         summary["failed_adoption_checks"] = failed
-        qualifications.append(summary)
-    eligible = [row for row in qualifications if row["adoption_qualified"]]
+    eligible = [row for row in ranked if row["adoption_qualified"]]
     if eligible:
-        selected = eligible[0]
+        selected_strategy_id: str | None = str(eligible[0]["strategy_id"])
         decision = "adopt_short_delay_rule"
-        selected_strategy_id: str | None = str(selected["strategy_id"])
         statement = (
-            "Adopt the frozen short-delay rule "
-            f"{selected_strategy_id}; retain all protocol parameters unchanged."
+            f"Adopt the frozen short-delay rule {selected_strategy_id}; "
+            "retain all protocol parameters unchanged."
         )
     else:
-        decision = str(policy["fallback_decision"])
         selected_strategy_id = None
+        decision = str(policy["fallback_decision"])
         statement = str(policy["fallback_statement"])
-
     conclusion = {
         "schema_version": CONCLUSION_SCHEMA_VERSION,
         "repository_commit": repository_commit,
@@ -439,19 +451,19 @@ def analyze_campaign(
         "statement": statement,
         "control_strategy_id": CONTROL,
         "primary_cost_profile_id": policy["primary_cost_profile_id"],
-        "candidate_assessments": qualifications,
+        "candidate_assessments": ranked,
         "disclosures": policy["disclosures"],
     }
     analysis = {
         "schema_version": ANALYSIS_SCHEMA_VERSION,
         "repository_commit": repository_commit,
         "coverage": coverage,
-        "rule_summaries": qualifications,
+        "rule_summaries": ranked,
         "final_conclusion": conclusion,
     }
     _write_csv(output_dir / "window-level.csv", window_rows)
     _write_csv(output_dir / "contribution-level.csv", contribution_rows)
-    _write_csv(output_dir / "rule-summary.csv", qualifications)
+    _write_csv(output_dir / "rule-summary.csv", ranked)
     (output_dir / "analysis.json").write_text(
         json.dumps(analysis, indent=2, sort_keys=True, default=str) + "\n",
         encoding="utf-8",
@@ -468,7 +480,7 @@ def analyze_campaign(
         "| Rank | Rule | Median value diff | Worst window | Win rate | Qualified |",
         "| ---: | --- | ---: | ---: | ---: | :---: |",
     ]
-    for row in qualifications:
+    for row in ranked:
         lines.append(
             f"| {row['rank']} | {row['strategy_id']} | "
             f"{row['median_terminal_value_difference_ratio']} | "
@@ -487,18 +499,17 @@ def analyze_campaign(
     interpretation = [
         "# Short-delay DCA research interpretation",
         "",
-        "MonthlyDCA remains the confirmed benchmark and each challenger is compared on matching "
-        "contributions, market windows and cost assumptions.",
+        "MonthlyDCA remains the confirmed benchmark. Challengers use matching contributions, "
+        "windows, data and cost assumptions.",
         "",
         f"## Final decision\n\n{statement}",
         "",
-        "The decision policy requires positive after-cost value, positive BTC evidence, broad "
-        "window support, a bounded worst case, limited forced deployment and consistent long-horizon "
-        "evidence. Reduced exposure or drawdown cannot substitute for return improvement.",
+        "Adoption requires positive after-cost value and BTC evidence, broad window support, a "
+        "bounded worst case, limited forced deployment and positive long-horizon evidence. Lower "
+        "exposure or drawdown cannot substitute for return improvement.",
         "",
-        "The continuous path is retained only as a historical complement. Overlapping windows are "
-        "dependent observations, and the former passive-frequency confirmation period is not reused "
-        "as a new independent holdout.",
+        "The continuous path is a historical complement. Overlapping windows are dependent, and "
+        "the prior passive-frequency confirmation period is not reused as a new holdout.",
     ]
     (output_dir / "interpretation.md").write_text(
         "\n".join(interpretation) + "\n",
