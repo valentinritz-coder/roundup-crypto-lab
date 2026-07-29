@@ -312,6 +312,7 @@ def plan_campaign(campaign: Mapping[str, Any]) -> list[dict[str, Any]]:
                     rows.append(
                         {
                             "scenario_id": scenario_id,
+                            "campaign_id": campaign["campaign_id"],
                             "pair": pair,
                             "timeframe": campaign["timeframe"],
                             "window_set_id": window["window_set_id"],
