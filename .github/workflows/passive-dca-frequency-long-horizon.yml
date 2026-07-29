@@ -1,0 +1,291 @@
+name: Passive DCA frequency long-horizon validation
+
+'on':
+  workflow_dispatch:
+    inputs:
+      study_path:
+        description: Frozen passive-frequency longitudinal study
+        required: true
+        default: config/passive-dca-frequency-long-horizon.json
+        type: string
+      artifact_name:
+        description: Artifact prefix
+        required: true
+        default: passive-dca-frequency-long-horizon
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: passive-dca-frequency-long-horizon
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      shards: '${{ steps.plan.outputs.shards }}'
+      scenario_count: '${{ steps.plan.outputs.scenario_count }}'
+    defaults:
+      run:
+        shell: "bash -eo pipefail {0}"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - name: Install project
+        run: python -m pip install -e '.[dev]'
+      - name: Validate and shard long-horizon plan
+        id: plan
+        env:
+          STUDY_PATH: '${{ inputs.study_path }}'
+        run: |
+          test "$STUDY_PATH" = config/passive-dca-frequency-long-horizon.json
+          mkdir -p prepared/shards
+          python -m roundup_crypto_lab.passive_dca_frequency_long_horizon \
+            --study "$STUDY_PATH" \
+            validate \
+            --output prepared/validated-long-horizon-study.json
+          python -m roundup_crypto_lab.passive_dca_frequency_long_horizon \
+            --study "$STUDY_PATH" \
+            plan \
+            --output prepared/long-horizon-plan.json
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          rows = json.loads(
+              Path("prepared/long-horizon-plan.json").read_text(encoding="utf-8")
+          )
+          if len(rows) != 4:
+              raise SystemExit(
+                  f"unexpected long-horizon scenario count: {len(rows)}; expected 4"
+              )
+          if {row["timerange"] for row in rows} != {"20180701-20260101"}:
+              raise SystemExit("long-horizon plan drifted from 20180701-20260101")
+          for shard_index, row in enumerate(rows):
+              Path(f"prepared/shards/{shard_index}.json").write_text(
+                  json.dumps([row], indent=2, sort_keys=True) + "\n",
+                  encoding="utf-8",
+              )
+          matrix = {"shard": list(range(len(rows)))}
+          with Path(os.environ["GITHUB_OUTPUT"]).open("a", encoding="utf-8") as output:
+              output.write(f"shards={json.dumps(matrix, separators=(',', ':'))}\n")
+              output.write(f"scenario_count={len(rows)}\n")
+          print("planned long-horizon scenarios=4; shards=4; strategy results=28")
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: '${{ inputs.artifact_name }}-plan-${{ github.run_id }}'
+          path: prepared/
+          if-no-files-found: error
+          retention-days: 30
+
+  validate:
+    needs: prepare
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix: '${{ fromJSON(needs.prepare.outputs.shards) }}'
+    defaults:
+      run:
+        shell: "bash -eo pipefail {0}"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - name: Install project
+        run: python -m pip install -e '.[dev]'
+      - name: Restore prepared Kraken cache
+        id: restore-kraken
+        uses: actions/cache/restore@v4
+        with:
+          path: user_data/data/kraken
+          key: 'kraken-ohlcv-v1-passive-frequency-long-horizon-${{ github.run_id }}'
+          restore-keys: kraken-ohlcv-v1-
+      - name: Download long-horizon plan
+        uses: actions/download-artifact@v4
+        with:
+          name: '${{ inputs.artifact_name }}-plan-${{ github.run_id }}'
+          path: prepared
+      - name: Run long-horizon scenario
+        env:
+          SHARD: '${{ matrix.shard }}'
+        run: |
+          test '${{ steps.restore-kraken.outputs.cache-hit }}' != '' || {
+            echo 'No prepared Kraken cache was restored. Run Update Kraken data first.'
+            exit 1
+          }
+          mkdir -p artifacts/results artifacts/diagnostics
+          python - <<'PY' > artifacts/scenario.tsv
+          import json
+          import os
+          from pathlib import Path
+
+          rows = json.loads(
+              Path(f"prepared/shards/{os.environ['SHARD']}.json").read_text(
+                  encoding="utf-8"
+              )
+          )
+          if len(rows) != 1:
+              raise SystemExit("each long-horizon shard must contain exactly one scenario")
+          row = rows[0]
+          fields = (
+              row["scenario_id"],
+              row["pair"],
+              row["timeframe"],
+              row["window_set_id"],
+              row["phase"],
+              row["timerange"],
+              row["cost_profile_id"],
+              row["registry_path"],
+              row["cost_profile_dir"],
+              row["initial_capital"],
+              row["monthly_budget"],
+              row["contribution_day"],
+              row["weekly_day"],
+              row["campaign_id"],
+          )
+          print("\t".join(str(value) for value in fields))
+          PY
+          IFS=$'\t' read -r \
+            scenario_id pair timeframe window_set scenario_phase timerange \
+            cost_profile registry cost_profile_dir initial_capital monthly_budget \
+            contribution_day weekly_day campaign_id < artifacts/scenario.tsv
+          test "$scenario_phase" = exploratory
+          test "$timerange" = 20180701-20260101
+          safe_pair=${pair//\//_}
+          output="artifacts/results/${scenario_phase}/${cost_profile}/${safe_pair}/${window_set}/${timerange}"
+          echo "[shard $SHARD] $cost_profile | $timerange"
+          python -m roundup_crypto_lab.passive_dca_frequency_scenario \
+            --pair "$pair" \
+            --timeframe "$timeframe" \
+            --timerange "$timerange" \
+            --registry "$registry" \
+            --initial-capital "$initial_capital" \
+            --monthly-budget "$monthly_budget" \
+            --contribution-day "$contribution_day" \
+            --weekly-day "$weekly_day" \
+            --cost-profile "$cost_profile" \
+            --cost-profile-dir "$cost_profile_dir" \
+            --repository-commit "$GITHUB_SHA" \
+            --campaign-id "$campaign_id" \
+            --phase "$scenario_phase" \
+            --window-set-id "$window_set" \
+            --scenario-id "$scenario_id" \
+            --output-dir "$output"
+      - name: Record long-horizon shard status
+        if: always()
+        env:
+          JOB_STATUS: '${{ job.status }}'
+          SHARD: '${{ matrix.shard }}'
+        run: |
+          mkdir -p artifacts/diagnostics
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          Path(
+              f"artifacts/diagnostics/long-horizon-shard-{os.environ['SHARD']}-status.json"
+          ).write_text(
+              json.dumps(
+                  {
+                      "schema_version": "passive-dca-frequency-long-horizon-shard-status/v1",
+                      "shard": int(os.environ["SHARD"]),
+                      "conclusion": os.environ["JOB_STATUS"],
+                  },
+                  indent=2,
+                  sort_keys=True,
+              )
+              + "\n",
+              encoding="utf-8",
+          )
+          PY
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: '${{ inputs.artifact_name }}-shard-${{ matrix.shard }}-${{ github.run_id }}'
+          path: artifacts/
+          if-no-files-found: error
+          retention-days: 30
+
+  aggregate:
+    if: always() && needs.prepare.result == 'success'
+    needs: [prepare, validate]
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: "bash -eo pipefail {0}"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - name: Install project
+        run: python -m pip install -e '.[dev]'
+      - name: Download long-horizon shard artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: '${{ inputs.artifact_name }}-shard-*-${{ github.run_id }}'
+          path: artifacts
+          merge-multiple: true
+      - name: Build long-horizon analysis
+        if: needs.validate.result == 'success'
+        env:
+          STUDY_PATH: '${{ inputs.study_path }}'
+        run: |
+          python -m roundup_crypto_lab.passive_dca_frequency_long_horizon \
+            --study "$STUDY_PATH" \
+            aggregate \
+            --results-dir artifacts/results \
+            --repository-commit "$GITHUB_SHA" \
+            --output-dir artifacts/final
+          cat artifacts/final/longitudinal/long-horizon-summary.md >> "$GITHUB_STEP_SUMMARY"
+      - name: Record long-horizon status
+        if: always()
+        env:
+          VALIDATION_RESULT: '${{ needs.validate.result }}'
+        run: |
+          mkdir -p artifacts/diagnostics
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          Path("artifacts/diagnostics/long-horizon-status.json").write_text(
+              json.dumps(
+                  {
+                      "schema_version": "passive-dca-frequency-long-horizon-status/v1",
+                      "conclusion": (
+                          "success"
+                          if os.environ["VALIDATION_RESULT"] == "success"
+                          else "failure"
+                      ),
+                      "scenario_result": os.environ["VALIDATION_RESULT"],
+                  },
+                  indent=2,
+                  sort_keys=True,
+              )
+              + "\n",
+              encoding="utf-8",
+          )
+          PY
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: '${{ inputs.artifact_name }}-${{ github.run_id }}'
+          path: artifacts/
+          if-no-files-found: error
+          retention-days: 30
