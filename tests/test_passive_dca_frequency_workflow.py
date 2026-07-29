@@ -36,4 +36,5 @@ def test_workflow_paths_encode_cost_profile_and_research_identity() -> None:
     assert "--cost-profile \"$cost_profile\"" in text
     assert "--scenario-id \"$scenario_id\"" in text
     assert "passive_dca_frequency_campaign aggregate" in text
-    assert "No frequency or calendar phase is ranked" not in text
+    assert "passive_dca_frequency_analysis_cli" in text
+    assert "passive-frequency-rankings.csv" not in text
