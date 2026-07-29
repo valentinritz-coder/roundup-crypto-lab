@@ -1,0 +1,20 @@
+{
+  "schema_version": "passive-dca-frequency-long-horizon/v1",
+  "study_id": "passive-dca-frequency-long-horizon-2026-07-29",
+  "scientific_role": "historical_longitudinal_complement",
+  "research_path": "config/passive-dca-frequency-research.json",
+  "timerange": "20180701-20260101",
+  "window_set_id": "continuous-90m",
+  "analysis_phase": "exploratory",
+  "primary_benchmark_strategy_id": "monthly-dca",
+  "expected_scenario_count": 4,
+  "expected_strategy_result_count": 28,
+  "trajectory_sampling": "month_end",
+  "disclosures": [
+    "This study is a historical longitudinal complement, not a new independent confirmation or a reopening of frequency selection.",
+    "The continuous path begins after the documented January 2018 Kraken gap; no candles are interpolated, forward-filled or substituted from another venue.",
+    "All seven frozen passive schedule phases are executed and every two-month and quarterly phase is aggregated with equal weight; no best phase is selected.",
+    "A single long historical path measures cumulative consistency but cannot establish robustness by itself.",
+    "MonthlyDCA remains the official passive benchmark unless a separately preregistered future study changes that decision."
+  ]
+}
