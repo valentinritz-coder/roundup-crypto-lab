@@ -69,6 +69,20 @@ IMPLEMENTATION_SPECS: Mapping[str, ImplementationSpec] = MappingProxyType(
             decision_cadences=frozenset({"monthly"}),
             parameters=MappingProxyType({}),
         ),
+        "fixed_periodic": ImplementationSpec(
+            identity="roundup_crypto_lab.dca.fixed_periodic@1",
+            decision_cadences=frozenset({"monthly"}),
+            parameters=MappingProxyType(
+                {
+                    "interval_months": ParameterSpec(
+                        "integer", minimum=1, maximum=3
+                    ),
+                    "phase_offset_months": ParameterSpec(
+                        "integer", minimum=0, maximum=2
+                    ),
+                }
+            ),
+        ),
         "immediate_floor_drawdown_reserve": ImplementationSpec(
             identity="roundup_crypto_lab.dca.immediate_floor_drawdown_reserve@1",
             decision_cadences=frozenset({"every_candle"}),
@@ -405,6 +419,13 @@ def _parse_parameters(
             raise RuntimeError(
                 f"unsupported code-owned parameter kind for {implementation}: "
                 f"{parameter_spec.kind}"
+            )
+    if implementation == "fixed_periodic":
+        interval = int(parsed["interval_months"])
+        phase = int(parsed["phase_offset_months"])
+        if phase >= interval:
+            raise ValueError(
+                f"{name}.phase_offset_months must be lower than interval_months"
             )
     for lower_name, upper_name in spec.ordered_thresholds:
         lower = Decimal(str(parsed[lower_name]))
