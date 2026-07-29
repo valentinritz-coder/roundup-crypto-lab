@@ -6,7 +6,10 @@ from decimal import Decimal
 import pandas as pd
 import pytest
 
-from roundup_crypto_lab.execution_costs import ExecutionCostProfile, execute_costed_purchase
+from roundup_crypto_lab.execution_costs import (
+    ExecutionCostProfile,
+    execute_costed_purchase,
+)
 from roundup_crypto_lab.investment_plan import CashFlowEvent
 from roundup_crypto_lab.short_delay_execution import (
     completed_daily_closes,
@@ -20,8 +23,9 @@ def profile(
     fixed_fee: str = "0",
     minimum: str = "0",
 ) -> ExecutionCostProfile:
+    identifier = f"test-{spread}-{fixed_fee}-{minimum}".replace(".", "-")
     return ExecutionCostProfile(
-        cost_profile_id=f"test-{spread}-{fixed_fee}-{minimum}".replace(".", "-") ,
+        cost_profile_id=identifier,
         profile_version=1,
         description="Test execution assumptions.",
         profile_kind="sensitivity" if fixed_fee != "0" else "baseline",
@@ -138,9 +142,13 @@ def test_decline_releases_after_signal_clears() -> None:
     )
 
     allocation = result["funding_allocations"][0]
+    expected = (contribution_at + timedelta(days=1)).isoformat()
     assert allocation["release_type"] == "signal_release"
-    assert allocation["scheduled_at"] == (contribution_at + timedelta(days=1)).isoformat()
-    assert [row["action"] for row in result["signal_ledger"]] == ["delay", "execute"]
+    assert allocation["scheduled_at"] == expected
+    assert [row["action"] for row in result["signal_ledger"]] == [
+        "delay",
+        "execute",
+    ]
 
 
 def test_confirmed_decline_releases_on_next_positive_close() -> None:
@@ -176,7 +184,12 @@ def test_forced_deployment_occurs_on_exact_day_seven_across_year_boundary() -> N
 
     allocation = result["funding_allocations"][0]
     assert allocation["release_type"] == "forced"
-    assert allocation["scheduled_at"] == datetime(2027, 1, 4, tzinfo=UTC).isoformat()
+    assert allocation["scheduled_at"] == datetime(
+        2027,
+        1,
+        4,
+        tzinfo=UTC,
+    ).isoformat()
     assert result["delay_diagnostics"]["maximum_delay_days"] == Decimal("7")
     assert result["delay_diagnostics"]["final_pending_cash"] == Decimal("0")
 
@@ -196,8 +209,10 @@ def test_future_candle_cannot_change_earlier_decision() -> None:
     first = execute_short_delay_strategy(candles=candles(start, base), **common)
     second = execute_short_delay_strategy(candles=candles(start, changed), **common)
 
-    assert first["funding_allocations"][0]["scheduled_at"] == contribution_at.isoformat()
-    assert second["funding_allocations"][0]["scheduled_at"] == contribution_at.isoformat()
+    first_at = first["funding_allocations"][0]["scheduled_at"]
+    second_at = second["funding_allocations"][0]["scheduled_at"]
+    assert first_at == contribution_at.isoformat()
+    assert second_at == contribution_at.isoformat()
     assert first["signal_ledger"] == second["signal_ledger"]
 
 
@@ -215,9 +230,12 @@ def test_contribution_buckets_never_consume_future_contributions() -> None:
     )
 
     allocations = result["funding_allocations"]
-    assert [row["funded_amount"] for row in allocations] == [Decimal("100"), Decimal("200")]
-    assert all(len(row["funding_allocations"]) == 1 for row in result["purchase_ledger"])
-    assert sum((row["funded_amount"] for row in allocations), Decimal("0")) == Decimal("300")
+    funded = [row["funded_amount"] for row in allocations]
+    purchase_ledger = result["purchase_ledger"]
+    total = sum((row["funded_amount"] for row in allocations), Decimal("0"))
+    assert funded == [Decimal("100"), Decimal("200")]
+    assert all(len(row["funding_allocations"]) == 1 for row in purchase_ledger)
+    assert total == Decimal("300")
 
 
 @pytest.mark.parametrize(
@@ -228,7 +246,9 @@ def test_contribution_buckets_never_consume_future_contributions() -> None:
         profile(spread="0.002", fixed_fee="1", minimum="10"),
     ],
 )
-def test_all_cost_components_are_conserved(cost_profile: ExecutionCostProfile) -> None:
+def test_all_cost_components_are_conserved(
+    cost_profile: ExecutionCostProfile,
+) -> None:
     start = datetime(2026, 1, 1, tzinfo=UTC)
     frame = candles(start, [Decimal("100") + index for index in range(30)])
     result = execute_short_delay_strategy(
@@ -245,7 +265,8 @@ def test_all_cost_components_are_conserved(cost_profile: ExecutionCostProfile) -
     fees = Decimal(str(allocation["explicit_fees"]))
     quantity = Decimal(str(allocation["btc_quantity"]))
     price = Decimal(str(allocation["execution_price"]))
+    digest = result["execution_costs"]["cost_profile"]["profile_digest"]
     assert gross - fees == Decimal(str(purchase["net_contribution"]))
     assert quantity == Decimal(str(purchase["quantity"]))
     assert quantity * price == Decimal(str(purchase["net_contribution"]))
-    assert result["execution_costs"]["cost_profile"]["profile_digest"] == cost_profile.digest
+    assert digest == cost_profile.digest
