@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from datetime import date, datetime, time, timedelta, timezone
+from datetime import UTC, date, datetime, time, timedelta
 from decimal import Decimal
 from pathlib import Path
 from typing import Any, Mapping, Sequence
@@ -168,12 +168,12 @@ def completed_utc_daily_observations(
 
     if decision_timestamp.tzinfo is None:
         raise ValueError("decision_timestamp must be timezone-aware")
-    decision_timestamp = decision_timestamp.astimezone(timezone.utc)
+    decision_timestamp = decision_timestamp.astimezone(UTC)
     by_close: dict[datetime, Decimal] = {}
     for timestamp, close in candles:
         if timestamp.tzinfo is None:
             raise ValueError("candle timestamps must be timezone-aware")
-        timestamp = timestamp.astimezone(timezone.utc)
+        timestamp = timestamp.astimezone(UTC)
         if timestamp <= decision_timestamp:
             by_close[timestamp] = Decimal(close)
 
