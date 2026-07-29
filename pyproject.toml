@@ -27,6 +27,7 @@ dca-registry = "roundup_crypto_lab.dca_registry:main"
 dca-cost-profile-scenario = "roundup_crypto_lab.dca_cost_profile_scenario:main"
 passive-dca-frequency-campaign = "roundup_crypto_lab.passive_dca_frequency_campaign:main"
 passive-dca-frequency-scenario = "roundup_crypto_lab.passive_dca_frequency_scenario:main"
+passive-dca-frequency-analysis = "roundup_crypto_lab.passive_dca_frequency_analysis_cli:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/roundup_crypto_lab"]
