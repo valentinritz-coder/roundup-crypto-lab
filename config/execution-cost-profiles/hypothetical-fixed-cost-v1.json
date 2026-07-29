@@ -1,0 +1,12 @@
+{
+  "schema_version": "execution-cost-profile/v1",
+  "cost_profile_id": "hypothetical-fixed-cost-v1",
+  "profile_version": 1,
+  "description": "Hypothetical sensitivity profile adding a 0.10 fixed fee per order to the proportional-plus-spread assumptions; it does not represent Kraken, Bitvavo or another platform tariff.",
+  "profile_kind": "sensitivity",
+  "trading_fee_ratio": "0.0026",
+  "half_spread_ratio": "0.0005",
+  "fixed_order_fee": "0.10",
+  "minimum_order_amount": "5",
+  "below_minimum_behavior": "carry_forward"
+}

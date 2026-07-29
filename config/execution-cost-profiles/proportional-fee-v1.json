@@ -1,0 +1,12 @@
+{
+  "schema_version": "execution-cost-profile/v1",
+  "cost_profile_id": "proportional-fee-v1",
+  "profile_version": 1,
+  "description": "Backward-compatible 0.26 percent proportional-fee research baseline with no spread or fixed fee.",
+  "profile_kind": "baseline",
+  "trading_fee_ratio": "0.0026",
+  "half_spread_ratio": "0",
+  "fixed_order_fee": "0",
+  "minimum_order_amount": "1",
+  "below_minimum_behavior": "carry_forward"
+}

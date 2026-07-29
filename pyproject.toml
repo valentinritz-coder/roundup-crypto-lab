@@ -24,6 +24,7 @@ dev = [
 roundup-report = "roundup_crypto_lab.cli:main"
 kraken-ohlcv-import = "roundup_crypto_lab.kraken_ohlcv:main"
 dca-registry = "roundup_crypto_lab.dca_registry:main"
+dca-cost-profile-scenario = "roundup_crypto_lab.dca_cost_profile_scenario:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/roundup_crypto_lab"]

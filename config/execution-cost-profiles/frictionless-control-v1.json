@@ -1,0 +1,12 @@
+{
+  "schema_version": "execution-cost-profile/v1",
+  "cost_profile_id": "frictionless-control-v1",
+  "profile_version": 1,
+  "description": "Control profile with no proportional fee, spread assumption, fixed fee or minimum order.",
+  "profile_kind": "control",
+  "trading_fee_ratio": "0",
+  "half_spread_ratio": "0",
+  "fixed_order_fee": "0",
+  "minimum_order_amount": "0",
+  "below_minimum_behavior": "carry_forward"
+}
