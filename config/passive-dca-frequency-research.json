@@ -1,0 +1,24 @@
+{
+  "schema_version": "passive-dca-frequency-research/v1",
+  "research_id": "passive-dca-frequency-research-2026-07-29",
+  "base_campaign_path": "config/passive-dca-frequency-campaign.json",
+  "registry_path": "config/passive-dca-frequency-strategies.json",
+  "policy_path": "config/passive-dca-frequency-policy.json",
+  "cost_profile_dir": "config/execution-cost-profiles",
+  "cost_profiles": [
+    "frictionless-control-v1",
+    "proportional-fee-v1",
+    "proportional-plus-spread-v1",
+    "hypothetical-fixed-cost-v1"
+  ],
+  "primary_research_phase": "exploratory",
+  "confirmation_phase": "confirmation",
+  "realistic_profile_id": "proportional-plus-spread-v1",
+  "fixed_cost_sensitivity_profile_id": "hypothetical-fixed-cost-v1",
+  "disclosures": [
+    "The hypothetical fixed-cost profile is a sensitivity analysis and is not a claim about Kraken, Bitvavo or another platform tariff.",
+    "Exploratory results determine the research interpretation; confirmation results remain isolated until the exploratory interpretation is frozen.",
+    "A preferred frequency is reported as a consensus only when all committed window sets select the same phase-aggregated winner.",
+    "No calendar phase is selected or optimized."
+  ]
+}
