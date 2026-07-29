@@ -1,0 +1,128 @@
+{
+  "registry_schema_version": 1,
+  "registry_id": "passive-dca-frequency-strategies",
+  "strategies": [
+    {
+      "strategy_id": "weekly-dca",
+      "implementation": "fixed_weekly",
+      "strategy_version": "1",
+      "hypothesis": "Deploying contributed cash on the preregistered Monday convention provides the highest-frequency passive control.",
+      "decision_cadence": "weekly",
+      "required_indicators": [],
+      "parameters": {
+        "weekday": 0
+      },
+      "maximum_pending_cash_age_days": null,
+      "minimum_order": {
+        "amount": "0",
+        "behavior": "skip"
+      },
+      "research_status": "baseline"
+    },
+    {
+      "strategy_id": "monthly-dca",
+      "implementation": "fixed_monthly",
+      "strategy_version": "1",
+      "hypothesis": "Deploying contributed cash on the contribution-day convention provides the primary monthly benchmark.",
+      "decision_cadence": "monthly",
+      "required_indicators": [],
+      "parameters": {},
+      "maximum_pending_cash_age_days": null,
+      "minimum_order": {
+        "amount": "0",
+        "behavior": "skip"
+      },
+      "research_status": "baseline"
+    },
+    {
+      "strategy_id": "every-two-months-phase-0",
+      "implementation": "fixed_periodic",
+      "strategy_version": "1",
+      "hypothesis": "Combining two monthly contributions before passive deployment may reduce execution costs without excessive cash waiting.",
+      "decision_cadence": "monthly",
+      "required_indicators": [],
+      "parameters": {
+        "interval_months": 2,
+        "phase_offset_months": 0
+      },
+      "maximum_pending_cash_age_days": null,
+      "minimum_order": {
+        "amount": "0",
+        "behavior": "skip"
+      },
+      "research_status": "baseline"
+    },
+    {
+      "strategy_id": "every-two-months-phase-1",
+      "implementation": "fixed_periodic",
+      "strategy_version": "1",
+      "hypothesis": "The second valid two-month calendar phase is retained as an equal-weight nuisance replication.",
+      "decision_cadence": "monthly",
+      "required_indicators": [],
+      "parameters": {
+        "interval_months": 2,
+        "phase_offset_months": 1
+      },
+      "maximum_pending_cash_age_days": null,
+      "minimum_order": {
+        "amount": "0",
+        "behavior": "skip"
+      },
+      "research_status": "baseline"
+    },
+    {
+      "strategy_id": "quarterly-phase-0",
+      "implementation": "fixed_periodic",
+      "strategy_version": "1",
+      "hypothesis": "Combining three monthly contributions before passive deployment may reduce execution costs at the expense of longer cash waiting.",
+      "decision_cadence": "monthly",
+      "required_indicators": [],
+      "parameters": {
+        "interval_months": 3,
+        "phase_offset_months": 0
+      },
+      "maximum_pending_cash_age_days": null,
+      "minimum_order": {
+        "amount": "0",
+        "behavior": "skip"
+      },
+      "research_status": "baseline"
+    },
+    {
+      "strategy_id": "quarterly-phase-1",
+      "implementation": "fixed_periodic",
+      "strategy_version": "1",
+      "hypothesis": "The second valid quarterly calendar phase is retained as an equal-weight nuisance replication.",
+      "decision_cadence": "monthly",
+      "required_indicators": [],
+      "parameters": {
+        "interval_months": 3,
+        "phase_offset_months": 1
+      },
+      "maximum_pending_cash_age_days": null,
+      "minimum_order": {
+        "amount": "0",
+        "behavior": "skip"
+      },
+      "research_status": "baseline"
+    },
+    {
+      "strategy_id": "quarterly-phase-2",
+      "implementation": "fixed_periodic",
+      "strategy_version": "1",
+      "hypothesis": "The third valid quarterly calendar phase is retained as an equal-weight nuisance replication.",
+      "decision_cadence": "monthly",
+      "required_indicators": [],
+      "parameters": {
+        "interval_months": 3,
+        "phase_offset_months": 2
+      },
+      "maximum_pending_cash_age_days": null,
+      "minimum_order": {
+        "amount": "0",
+        "behavior": "skip"
+      },
+      "research_status": "baseline"
+    }
+  ]
+}

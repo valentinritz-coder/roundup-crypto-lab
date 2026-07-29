@@ -1,0 +1,30 @@
+{
+  "schema_version": "passive-dca-frequency-policy/v1",
+  "policy_id": "passive-dca-frequency-policy-2026-07-29",
+  "primary_control": "MonthlyDCA",
+  "phase_treatment": "equal_weight_nuisance_replications",
+  "ranking_rule": "frequency_aggregates_only_never_best_phase",
+  "thresholds": {
+    "minimum_exploratory_windows": 4,
+    "minimum_confirmation_windows": 1,
+    "robust_final_value_win_rate": "0.65",
+    "promising_final_value_win_rate": "0.55",
+    "rejected_final_value_win_rate_max": "0.35",
+    "maximum_phase_dispersion_for_robust_result": "0.10"
+  },
+  "required_cost_components": [
+    "explicit_fees_paid",
+    "estimated_spread_cost",
+    "total_execution_cost",
+    "final_uninvested_cash",
+    "order_count",
+    "average_order_size"
+  ],
+  "notes": [
+    "This policy is committed before frequency-level aggregation is implemented.",
+    "MonthlyDCA remains the primary benchmark for issue 116 aggregation.",
+    "Phase-level rows are diagnostics and can never become the selected research result.",
+    "Exploratory and confirmation phases must be classified separately.",
+    "Overlapping windows and calendar phases within one market window are not independent observations."
+  ]
+}

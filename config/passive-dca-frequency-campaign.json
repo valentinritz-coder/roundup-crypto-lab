@@ -1,0 +1,68 @@
+{
+  "schema_version": "passive-dca-frequency-campaign/v1",
+  "campaign_id": "passive-dca-frequency-2026-07-29",
+  "registry_path": "config/passive-dca-frequency-strategies.json",
+  "policy_path": "config/passive-dca-frequency-policy.json",
+  "cost_profile_dir": "config/execution-cost-profiles",
+  "timeframe": "4h",
+  "investment_plan": {
+    "initial_capital": "40",
+    "monthly_budget": "40",
+    "contribution_day": 1,
+    "weekly_day": "monday"
+  },
+  "pairs": [
+    "BTC/EUR"
+  ],
+  "cost_profiles": [
+    "frictionless-control-v1",
+    "proportional-fee-v1",
+    "proportional-plus-spread-v1"
+  ],
+  "window_sets": [
+    {
+      "window_set_id": "rolling-24m-6m-step",
+      "phase": "exploratory",
+      "start": "20180101",
+      "end": "20240101",
+      "months": 24,
+      "step_months": 6,
+      "overlapping": true
+    },
+    {
+      "window_set_id": "non-overlapping-24m",
+      "phase": "exploratory",
+      "start": "20180101",
+      "end": "20240101",
+      "months": 24,
+      "step_months": 24,
+      "overlapping": false
+    },
+    {
+      "window_set_id": "rolling-48m-12m-step",
+      "phase": "exploratory",
+      "start": "20180101",
+      "end": "20240101",
+      "months": 48,
+      "step_months": 12,
+      "overlapping": true
+    },
+    {
+      "window_set_id": "confirmation-24m",
+      "phase": "confirmation",
+      "start": "20240101",
+      "end": "20260101",
+      "months": 24,
+      "step_months": 24,
+      "overlapping": false
+    }
+  ],
+  "disclosures": [
+    "All strategies receive the same monthly contribution schedule and total contributed capital.",
+    "Weekly uses the preregistered Monday convention and monthly uses the contribution-day convention.",
+    "Every-two-month and quarterly phase offsets are equal-weight nuisance replications and must never be optimized or selected by their best result.",
+    "Overlapping rolling windows are not independent observations.",
+    "Exploratory windows end before the confirmation window begins.",
+    "The proportional-plus-spread profile is a research assumption rather than a historical venue tariff."
+  ]
+}
