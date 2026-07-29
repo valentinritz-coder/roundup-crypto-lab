@@ -1,0 +1,250 @@
+name: Short-delay DCA final analysis
+
+'on':
+  workflow_dispatch:
+    inputs:
+      campaign_path:
+        description: Committed frozen short-delay campaign
+        required: true
+        default: config/short-delay-dca-campaign.json
+        type: string
+      policy_path:
+        description: Committed final decision policy
+        required: true
+        default: config/short-delay-dca-decision-policy.json
+        type: string
+      artifact_prefix:
+        description: Artifact prefix
+        required: true
+        default: short-delay-dca-final-analysis
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: short-delay-dca-final-analysis
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      shards: '${{ steps.plan.outputs.shards }}'
+    defaults:
+      run:
+        shell: "bash -eo pipefail {0}"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - name: Install project
+        run: python -m pip install -e '.[dev]'
+      - name: Validate protocol, policy and exact full matrix
+        id: plan
+        env:
+          CAMPAIGN_PATH: '${{ inputs.campaign_path }}'
+          POLICY_PATH: '${{ inputs.policy_path }}'
+        run: |
+          test "$CAMPAIGN_PATH" = config/short-delay-dca-campaign.json
+          test "$POLICY_PATH" = config/short-delay-dca-decision-policy.json
+          mkdir -p prepared/shards
+          python -m roundup_crypto_lab.short_delay_campaign \
+            --campaign "$CAMPAIGN_PATH" \
+            validate \
+            --output prepared/campaign-validation.json
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          from roundup_crypto_lab.short_delay_analysis import load_policy
+
+          campaign_path = Path(os.environ["CAMPAIGN_PATH"])
+          load_policy(Path(os.environ["POLICY_PATH"]))
+          rows = []
+          for section in ("multi-window", "historical-complement"):
+              output = Path(f"prepared/{section}.json")
+              os.system(
+                  "python -m roundup_crypto_lab.short_delay_campaign "
+                  f"--campaign {campaign_path} plan --section {section} --output {output}"
+              )
+              rows.extend(json.loads(output.read_text(encoding="utf-8")))
+          expected = 52
+          if len(rows) != expected:
+              raise SystemExit(f"unexpected full scenario count: {len(rows)}; expected {expected}")
+          if len({row["scenario_id"] for row in rows}) != expected:
+              raise SystemExit("full campaign contains duplicate scenario identities")
+          rows.sort(key=lambda row: row["scenario_id"])
+          shard_count = 13
+          shards = [[] for _ in range(shard_count)]
+          for index, row in enumerate(rows):
+              shards[index % shard_count].append(row)
+          for shard_index, shard_rows in enumerate(shards):
+              Path(f"prepared/shards/{shard_index}.json").write_text(
+                  json.dumps(shard_rows, indent=2, sort_keys=True) + "\n",
+                  encoding="utf-8",
+              )
+          matrix = {"shard": list(range(shard_count))}
+          with Path(os.environ["GITHUB_OUTPUT"]).open("a", encoding="utf-8") as handle:
+              handle.write(f"shards={json.dumps(matrix, separators=(',', ':'))}\n")
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: '${{ inputs.artifact_prefix }}-plan-${{ github.run_id }}'
+          path: prepared/
+          if-no-files-found: error
+          retention-days: 30
+
+  research:
+    needs: prepare
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      max-parallel: 8
+      matrix: '${{ fromJSON(needs.prepare.outputs.shards) }}'
+    defaults:
+      run:
+        shell: "bash -eo pipefail {0}"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - name: Install project
+        run: python -m pip install -e '.[dev]'
+      - name: Restore prepared Kraken cache
+        id: restore-kraken
+        uses: actions/cache/restore@v4
+        with:
+          path: user_data/data/kraken
+          key: 'kraken-ohlcv-v1-short-delay-final-${{ github.run_id }}'
+          restore-keys: kraken-ohlcv-v1-
+      - name: Download full campaign plan
+        uses: actions/download-artifact@v4
+        with:
+          name: '${{ inputs.artifact_prefix }}-plan-${{ github.run_id }}'
+          path: prepared
+      - name: Run every scenario and preserve later diagnostics
+        env:
+          SHARD: '${{ matrix.shard }}'
+          CAMPAIGN_PATH: '${{ inputs.campaign_path }}'
+        run: |
+          test '${{ steps.restore-kraken.outputs.cache-hit }}' != '' || {
+            echo 'No prepared Kraken cache was restored. Run Update Kraken data first.'
+            exit 1
+          }
+          mkdir -p artifacts/results artifacts/diagnostics artifacts/scenarios
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          rows = json.loads(
+              Path(f"prepared/shards/{os.environ['SHARD']}.json").read_text(
+                  encoding="utf-8"
+              )
+          )
+          for index, row in enumerate(rows):
+              Path(f"artifacts/scenarios/{index}.json").write_text(
+                  json.dumps(row, indent=2, sort_keys=True) + "\n",
+                  encoding="utf-8",
+              )
+          PY
+          failed=0
+          for scenario_file in artifacts/scenarios/*.json
+          do
+            scenario_id=$(python -c \
+              'import json,sys; print(json.load(open(sys.argv[1]))["scenario_id"])' \
+              "$scenario_file")
+            safe_id=$(printf '%s' "$scenario_id" | tr ':/' '__')
+            output="artifacts/results/$safe_id"
+            echo "[shard $SHARD] $scenario_id"
+            if ! python -m roundup_crypto_lab.short_delay_campaign \
+              --campaign "$CAMPAIGN_PATH" \
+              run-scenario \
+              --scenario "$scenario_file" \
+              --repository-commit "$GITHUB_SHA" \
+              --output-dir "$output"
+            then
+              echo "::error title=Short-delay scenario failed::$scenario_id"
+              failed=1
+            fi
+          done
+          exit "$failed"
+      - name: Record shard status
+        if: always()
+        env:
+          SHARD: '${{ matrix.shard }}'
+          JOB_STATUS: '${{ job.status }}'
+        run: |
+          mkdir -p artifacts/diagnostics
+          printf '{"shard":%s,"conclusion":"%s"}\n' \
+            "$SHARD" "$JOB_STATUS" \
+            > "artifacts/diagnostics/shard-$SHARD.json"
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: >-
+            ${{ inputs.artifact_prefix }}-shard-${{ matrix.shard }}-${{ github.run_id }}
+          path: artifacts/
+          if-no-files-found: error
+          retention-days: 30
+
+  aggregate:
+    if: always() && needs.prepare.result == 'success'
+    needs: [prepare, research]
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: "bash -eo pipefail {0}"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - name: Install project
+        run: python -m pip install -e '.[dev]'
+      - name: Download all shard artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: '${{ inputs.artifact_prefix }}-shard-*-${{ github.run_id }}'
+          path: artifacts
+          merge-multiple: true
+      - name: Build final analysis and decision
+        if: needs.research.result == 'success'
+        env:
+          CAMPAIGN_PATH: '${{ inputs.campaign_path }}'
+          POLICY_PATH: '${{ inputs.policy_path }}'
+        run: |
+          python -m roundup_crypto_lab.short_delay_analysis \
+            --campaign "$CAMPAIGN_PATH" \
+            --policy "$POLICY_PATH" \
+            --results-dir artifacts/results \
+            --repository-commit "$GITHUB_SHA" \
+            --output-dir artifacts/final
+          test -f artifacts/final/final-conclusion.json
+          cat artifacts/final/job-summary.md >> "$GITHUB_STEP_SUMMARY"
+      - name: Block final decision after any failed shard
+        if: needs.research.result != 'success'
+        run: |
+          mkdir -p artifacts/final
+          printf '%s\n' \
+            '{"matrix_complete":false,"decision_allowed":false}' \
+            > artifacts/final/incomplete-matrix-status.json
+          echo 'Full matrix incomplete; final conclusion blocked.' >> "$GITHUB_STEP_SUMMARY"
+          exit 1
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: '${{ inputs.artifact_prefix }}-${{ github.run_id }}'
+          path: artifacts/
+          if-no-files-found: error
+          retention-days: 30
