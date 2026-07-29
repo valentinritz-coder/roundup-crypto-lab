@@ -327,10 +327,13 @@ def execute_costed_purchase(
     trading_fee = gross - fixed_fee - net_notional
     explicit_fees = trading_fee + fixed_fee
     quantity = net_notional / execution_price
-    reference_notional = quantity * reference_price
-    spread_cost = net_notional - reference_notional
-    if spread_cost < 0:
-        raise ValueError("spread accounting produced a negative implicit cost")
+    if profile.half_spread_ratio == 0:
+        spread_cost = Decimal("0")
+    else:
+        reference_notional = quantity * reference_price
+        spread_cost = net_notional - reference_notional
+        if spread_cost < 0:
+            raise ValueError("spread accounting produced a negative implicit cost")
 
     executed.update(
         {
