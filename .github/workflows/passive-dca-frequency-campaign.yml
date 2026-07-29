@@ -294,7 +294,7 @@ jobs:
           pattern: '${{ inputs.artifact_name }}-${{ inputs.phase }}-shard-*-${{ github.run_id }}'
           path: artifacts
           merge-multiple: true
-      - name: Build deterministic coverage index
+      - name: Build phase-aggregated frequency reports
         if: needs.campaign.result == 'success'
         env:
           PHASE: '${{ inputs.phase }}'
@@ -306,6 +306,14 @@ jobs:
             --registry config/passive-dca-frequency-strategies.json \
             --policy "$POLICY_PATH" \
             --cost-profile-dir config/execution-cost-profiles \
+            --phase "$PHASE" \
+            --results-dir artifacts/results \
+            --repository-commit "$GITHUB_SHA" \
+            --output-dir "artifacts/aggregate/$PHASE"
+          python -m roundup_crypto_lab.passive_dca_frequency_analysis_cli \
+            --campaign "$CAMPAIGN_PATH" \
+            --registry config/passive-dca-frequency-strategies.json \
+            --policy "$POLICY_PATH" \
             --phase "$PHASE" \
             --results-dir artifacts/results \
             --repository-commit "$GITHUB_SHA" \
