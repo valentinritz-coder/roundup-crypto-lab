@@ -58,7 +58,10 @@ def completed_daily_closes(candles: pd.DataFrame) -> tuple[CompletedDailyClose, 
         raise ValueError("short-delay execution requires non-empty date and close columns")
     rows: dict[datetime, Decimal] = {}
     for row in candles.loc[:, ["date", "close"]].itertuples(index=False):
-        timestamp = _as_utc(pd.Timestamp(row.date).to_pydatetime(), "candle timestamp")
+        timestamp = _as_utc(
+            pd.Timestamp(row.date).to_pydatetime(),
+            "candle timestamp",
+        )
         close = Decimal(str(row.close))
         if not close.is_finite() or close <= 0:
             raise ValueError("candle closes must be finite and positive")
@@ -71,17 +74,27 @@ def completed_daily_closes(candles: pd.DataFrame) -> tuple[CompletedDailyClose, 
     last_day = max(rows).date()
     current = first_day
     while current <= last_day:
-        starts = [datetime(current.year, current.month, current.day, hour, tzinfo=UTC) for hour in FOUR_HOUR_START_HOURS]
+        starts = [
+            datetime(
+                current.year,
+                current.month,
+                current.day,
+                hour,
+                tzinfo=UTC,
+            )
+            for hour in FOUR_HOUR_START_HOURS
+        ]
         present = [timestamp in rows for timestamp in starts]
         if any(present) and not all(present):
-            raise ValueError(f"incomplete UTC daily observation for {current.isoformat()}")
+            raise ValueError(
+                f"incomplete UTC daily observation for {current.isoformat()}"
+            )
         if all(present):
-            visible_at = starts[-1] + INTERVAL
             observations.append(
                 CompletedDailyClose(
                     day=current,
                     close=rows[starts[-1]],
-                    visible_at=visible_at,
+                    visible_at=starts[-1] + INTERVAL,
                 )
             )
         current += timedelta(days=1)
@@ -93,9 +106,15 @@ def _visible_series(
     decision_at: datetime,
 ) -> tuple[dict[date, Decimal], CompletedDailyClose]:
     cutoff = _as_utc(decision_at, "decision timestamp")
-    visible = [observation for observation in observations if observation.visible_at <= cutoff]
+    visible = [
+        observation
+        for observation in observations
+        if observation.visible_at <= cutoff
+    ]
     if not visible:
-        raise ValueError(f"no completed daily observation visible at {cutoff.isoformat()}")
+        raise ValueError(
+            f"no completed daily observation visible at {cutoff.isoformat()}"
+        )
     by_day = {observation.day: observation.close for observation in visible}
     if len(by_day) != len(visible):
         raise ValueError("completed daily observations must have unique dates")
@@ -107,17 +126,23 @@ def _window(
     end_day: date,
     length: int,
 ) -> tuple[Decimal, ...]:
-    days = tuple(end_day - timedelta(days=offset) for offset in range(length - 1, -1, -1))
+    offsets = range(length - 1, -1, -1)
+    days = tuple(end_day - timedelta(days=offset) for offset in offsets)
     missing = [day for day in days if day not in closes]
     if missing:
+        missing_text = ", ".join(day.isoformat() for day in missing)
         raise ValueError(
             "missing completed daily observation required by signal: "
-            + ", ".join(day.isoformat() for day in missing)
+            f"{missing_text}"
         )
     return tuple(closes[day] for day in days)
 
 
-def _sma(closes: Mapping[date, Decimal], end_day: date, length: int = 7) -> Decimal:
+def _sma(
+    closes: Mapping[date, Decimal],
+    end_day: date,
+    length: int = 7,
+) -> Decimal:
     values = _window(closes, end_day, length)
     return sum(values, Decimal("0")) / Decimal(length)
 
@@ -213,7 +238,11 @@ def _execution_timestamp(
                 )
             )
             return decision_at, "forced", tuple(ledger)
-        release, release_reason = _release_condition(strategy_id, closes, latest.day)
+        release, release_reason = _release_condition(
+            strategy_id,
+            closes,
+            latest.day,
+        )
         ledger.append(
             _decision_row(
                 decision_at=decision_at,
@@ -264,7 +293,9 @@ def execute_short_delay_strategy(
     if not events:
         raise ValueError("short-delay execution requires contribution events")
     observations = completed_daily_closes(candles)
-    ordered_events = tuple(sorted(events, key=lambda item: (item.contributed_at, item.kind)))
+    ordered_events = tuple(
+        sorted(events, key=lambda item: (item.contributed_at, item.kind))
+    )
     purchases: list[dict[str, Any]] = []
     signal_ledger: list[dict[str, Any]] = []
     allocations: list[dict[str, Any]] = []
@@ -298,8 +329,11 @@ def execute_short_delay_strategy(
         executed_at = datetime.fromisoformat(execution["executed_at"]).astimezone(UTC)
         contributed_at = _as_utc(event.contributed_at, "contribution timestamp")
         waiting = executed_at - contributed_at
-        if waiting > timedelta(days=MAXIMUM_DELAY_DAYS, hours=4):
-            raise ValueError("contribution remained pending beyond the bounded execution window")
+        maximum_wait = timedelta(days=MAXIMUM_DELAY_DAYS, hours=4)
+        if waiting > maximum_wait:
+            raise ValueError(
+                "contribution remained pending beyond the bounded execution window"
+            )
         execution["decision_tag"] = f"short_delay.{strategy_id}"
         execution["order_tag"] = release_type
         execution["contribution_id"] = contribution_id
@@ -328,21 +362,26 @@ def execute_short_delay_strategy(
                 "btc_quantity": execution["quantity"],
             }
         )
+        strategy_price = execution["execution_price"]
+        control_price = baseline["execution_price"]
         impacts.append(
             {
                 "contribution_id": contribution_id,
-                "monthly_dca_execution_price": baseline["execution_price"],
-                "strategy_execution_price": execution["execution_price"],
-                "price_difference": execution["execution_price"] - baseline["execution_price"],
+                "monthly_dca_execution_price": control_price,
+                "strategy_execution_price": strategy_price,
+                "price_difference": strategy_price - control_price,
                 "price_difference_ratio": (
-                    execution["execution_price"] / baseline["execution_price"] - Decimal("1")
+                    strategy_price / control_price - Decimal("1")
                 ),
             }
         )
 
     result = build_result(strategy_id, pair, candles, ordered_events, purchases)
     enrich_result_with_execution_costs(result, purchases, profile)
-    delays = [Decimal(str(row["waiting_seconds"])) / Decimal("86400") for row in allocations]
+    delays = [
+        Decimal(str(row["waiting_seconds"])) / Decimal("86400")
+        for row in allocations
+    ]
     delayed = [row for row in allocations if row["waiting_seconds"] > 0]
     result["strategy"] = {
         "strategy_id": strategy_id,
@@ -358,7 +397,9 @@ def execute_short_delay_strategy(
         "immediate_investment_rate": (
             Decimal(len(allocations) - len(delayed)) / Decimal(len(allocations))
         ),
-        "average_delay_days": sum(delays, Decimal("0")) / Decimal(len(delays)),
+        "average_delay_days": (
+            sum(delays, Decimal("0")) / Decimal(len(delays))
+        ),
         "maximum_delay_days": max(delays, default=Decimal("0")),
         "forced_deployment_count": sum(
             row["release_type"] == "forced" for row in allocations
