@@ -1,0 +1,83 @@
+{
+  "schema_version": "short-delay-dca-campaign/v1",
+  "campaign_id": "short-delay-dca-research-2026-07-29",
+  "protocol_path": "research/short_delay_dca_protocol.v1.json",
+  "cost_profile_dir": "config/execution-cost-profiles",
+  "pair": "BTC/EUR",
+  "timeframe": "4h",
+  "investment_plan": {
+    "initial_capital": "40",
+    "monthly_budget": "40",
+    "contribution_day": 1
+  },
+  "cost_profiles": [
+    "frictionless-control-v1",
+    "proportional-fee-v1",
+    "proportional-plus-spread-v1",
+    "hypothetical-fixed-cost-v1"
+  ],
+  "strategy_ids": [
+    "monthly_dca_control",
+    "negative_7d_return_delay",
+    "below_7d_sma_delay",
+    "confirmed_short_decline_delay"
+  ],
+  "window_sets": [
+    {
+      "window_set_id": "rolling-24m-6m-step",
+      "research_section": "multi-window",
+      "start": "20180701",
+      "end": "20240101",
+      "months": 24,
+      "step_months": 6,
+      "overlapping": true
+    },
+    {
+      "window_set_id": "non-overlapping-24m",
+      "research_section": "multi-window",
+      "start": "20200101",
+      "end": "20240101",
+      "months": 24,
+      "step_months": 24,
+      "overlapping": false
+    },
+    {
+      "window_set_id": "rolling-48m-12m-step",
+      "research_section": "multi-window",
+      "start": "20190101",
+      "end": "20240101",
+      "months": 48,
+      "step_months": 12,
+      "overlapping": true
+    },
+    {
+      "window_set_id": "continuous-long-horizon",
+      "research_section": "historical-complement",
+      "start": "20180701",
+      "end": "20260101",
+      "months": 90,
+      "step_months": 90,
+      "overlapping": false
+    }
+  ],
+  "known_excluded_gap": {
+    "start": "2018-01-11T20:00:00+00:00",
+    "end": "2018-01-13T08:00:00+00:00",
+    "duration_hours": 36,
+    "policy": "reject_affected_windows_without_imputation"
+  },
+  "disclosures": [
+    "The 2024-2025 passive-frequency confirmation holdout is not reused as a new independent holdout.",
+    "The continuous path is a historical complement and not an independent confirmation experiment.",
+    "Overlapping rolling windows are dependent observations.",
+    "Historical execution is not a guarantee of future performance.",
+    "No signal parameter, release threshold or maximum delay is configurable at workflow dispatch."
+  ],
+  "expected_counts": {
+    "multi-window": 48,
+    "historical-complement": 4,
+    "all": 52,
+    "strategies_per_scenario": 4,
+    "all_strategy_results": 208
+  }
+}
