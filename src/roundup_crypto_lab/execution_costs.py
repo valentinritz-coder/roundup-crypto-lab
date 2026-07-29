@@ -318,19 +318,22 @@ def execute_costed_purchase(
         return None
 
     reference_price = Decimal(str(executed["execution_price"]))
-    spread_multiplier = Decimal("1") + profile.half_spread_ratio
-    execution_price = reference_price * spread_multiplier
+    execution_price = reference_price * (
+        Decimal("1") + profile.half_spread_ratio
+    )
     provisional_trading_fee = gross * profile.trading_fee_ratio
     fixed_fee = profile.fixed_order_fee
     net_notional = gross - provisional_trading_fee - fixed_fee
     trading_fee = gross - fixed_fee - net_notional
     explicit_fees = trading_fee + fixed_fee
     quantity = net_notional / execution_price
-    spread_cost = (
-        Decimal("0")
-        if profile.half_spread_ratio == 0
-        else net_notional * profile.half_spread_ratio / spread_multiplier
-    )
+    if profile.half_spread_ratio == 0:
+        spread_cost = Decimal("0")
+    else:
+        reference_notional = quantity * reference_price
+        spread_cost = net_notional - reference_notional
+        if spread_cost < 0:
+            raise ValueError("spread accounting produced a negative implicit cost")
 
     executed.update(
         {
