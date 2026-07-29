@@ -9,19 +9,24 @@ import json
 from calendar import monthrange
 from collections.abc import Mapping, Sequence
 from copy import deepcopy
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
 from roundup_crypto_lab.deployment_engine import load_kraken_candles, parse_timerange
 from roundup_crypto_lab.execution_costs import resolve_cost_profile
 from roundup_crypto_lab.investment_plan import InvestmentPlan, contribution_schedule
-from roundup_crypto_lab.short_delay_dca import load_and_validate_protocol
+from roundup_crypto_lab.short_delay_dca import (
+    MAXIMUM_DELAY_DAYS,
+    load_and_validate_protocol,
+)
 from roundup_crypto_lab.short_delay_execution import execute_short_delay_strategy
 
 SCHEMA_VERSION = "short-delay-dca-campaign/v1"
 SCENARIO_SCHEMA_VERSION = "short-delay-dca-scenario/v1"
 STATUS_SCHEMA_VERSION = "short-delay-dca-campaign-status/v1"
+SIGNAL_WARMUP_DAYS = 14
 STRATEGIES = (
     "monthly_dca_control",
     "negative_7d_return_delay",
@@ -41,6 +46,40 @@ EXPECTED_COUNTS = {
     "all": 52,
     "strategies_per_scenario": 4,
     "all_strategy_results": 208,
+}
+EXPECTED_WINDOWS = {
+    "rolling-24m-6m-step": (
+        "multi-window",
+        "20180701",
+        "20240101",
+        24,
+        6,
+        True,
+    ),
+    "non-overlapping-24m": (
+        "multi-window",
+        "20200101",
+        "20240101",
+        24,
+        24,
+        False,
+    ),
+    "rolling-48m-12m-step": (
+        "multi-window",
+        "20190101",
+        "20240101",
+        48,
+        12,
+        True,
+    ),
+    "continuous-long-horizon": (
+        "historical-complement",
+        "20180701",
+        "20260101",
+        90,
+        90,
+        False,
+    ),
 }
 
 
@@ -115,21 +154,26 @@ def load_campaign(path: Path) -> dict[str, Any]:
     if payload["expected_counts"] != EXPECTED_COUNTS:
         raise ValueError("campaign expected counts drifted")
     plan = payload["investment_plan"]
-    if plan != {"initial_capital": "40", "monthly_budget": "40", "contribution_day": 1}:
+    expected_plan = {
+        "initial_capital": "40",
+        "monthly_budget": "40",
+        "contribution_day": 1,
+    }
+    if plan != expected_plan:
         raise ValueError("campaign contribution assumptions drifted")
-    gap = payload["known_excluded_gap"]
     expected_gap = {
         "start": "2018-01-11T20:00:00+00:00",
         "end": "2018-01-13T08:00:00+00:00",
         "duration_hours": 36,
         "policy": "reject_affected_windows_without_imputation",
     }
-    if gap != expected_gap:
+    if payload["known_excluded_gap"] != expected_gap:
         raise ValueError("known Kraken gap contract drifted")
-    rows = payload["window_sets"]
-    if not isinstance(rows, list) or len(rows) != 4:
+    windows = payload["window_sets"]
+    if not isinstance(windows, list) or len(windows) != len(EXPECTED_WINDOWS):
         raise ValueError("campaign must define exactly four window sets")
-    for index, row in enumerate(rows):
+    actual_windows: dict[str, tuple[object, ...]] = {}
+    for index, row in enumerate(windows):
         required = {
             "window_set_id",
             "research_section",
@@ -141,10 +185,17 @@ def load_campaign(path: Path) -> dict[str, Any]:
         }
         if not isinstance(row, Mapping) or set(row) != required:
             raise ValueError(f"window_sets[{index}] keys drifted")
-        if row["research_section"] not in SECTIONS:
-            raise ValueError("unsupported research section")
-        if _day(row["start"], "window start") >= _day(row["end"], "window end"):
-            raise ValueError("window start must precede end")
+        identity = str(row["window_set_id"])
+        actual_windows[identity] = (
+            row["research_section"],
+            row["start"],
+            row["end"],
+            row["months"],
+            row["step_months"],
+            row["overlapping"],
+        )
+    if actual_windows != EXPECTED_WINDOWS:
+        raise ValueError("research window structure drifted")
     return payload
 
 
@@ -160,15 +211,16 @@ def campaign_provenance(campaign: Mapping[str, Any]) -> dict[str, Any]:
         "strategy_registry_digest": _digest(strategies),
         "protocol_id": protocol["protocol_id"],
         "visible_data_convention": protocol["observation_contract"],
-        "maximum_delay_calendar_days": campaign["expected_counts"][
-            "strategies_per_scenario"
-        ]
-        + 3,
+        "maximum_delay_calendar_days": MAXIMUM_DELAY_DAYS,
+        "signal_warmup_days": SIGNAL_WARMUP_DAYS,
     }
 
 
-def plan_campaign(campaign: Mapping[str, Any], section: str) -> list[dict[str, Any]]:
-    """Materialize the exact deterministic scenario matrix for one research section."""
+def plan_campaign(
+    campaign: Mapping[str, Any],
+    section: str,
+) -> list[dict[str, Any]]:
+    """Materialize the exact deterministic scenario matrix for one section."""
 
     if section not in SECTIONS:
         raise ValueError(f"section must be one of: {', '.join(SECTIONS)}")
@@ -220,9 +272,17 @@ def _serialize(value: object) -> object:
         return {str(key): _serialize(item) for key, item in value.items()}
     if isinstance(value, (list, tuple)):
         return [_serialize(item) for item in value]
+    if isinstance(value, Decimal):
+        return str(value)
     if hasattr(value, "isoformat"):
         return value.isoformat()
-    return str(value) if value.__class__.__name__ == "Decimal" else value
+    return value
+
+
+def _signal_timerange(timerange: str) -> str:
+    start, end = parse_timerange(timerange)
+    signal_start = start - timedelta(days=SIGNAL_WARMUP_DAYS)
+    return f"{signal_start:%Y%m%d}-{end:%Y%m%d}"
 
 
 def run_scenario(
@@ -235,13 +295,13 @@ def run_scenario(
 ) -> dict[str, Any]:
     """Execute all four frozen strategies for one window and cost profile."""
 
-    parse_timerange(str(scenario["timerange"]))
+    timerange = str(scenario["timerange"])
+    start, end = parse_timerange(timerange)
     provenance = campaign_provenance(campaign)
     profile = resolve_cost_profile(
         str(scenario["cost_profile_id"]),
         search_dir=Path(str(scenario["cost_profile_dir"])),
     )
-    start, end = parse_timerange(str(scenario["timerange"]))
     plan = InvestmentPlan(
         str(scenario["initial_capital"]),
         str(scenario["monthly_budget"]),
@@ -249,11 +309,12 @@ def run_scenario(
         int(scenario["contribution_day"]),
     )
     events = contribution_schedule(plan, start, end)
+    signal_timerange = _signal_timerange(timerange)
     candles = load_kraken_candles(
         data_dir,
         str(scenario["pair"]),
         str(scenario["timeframe"]),
-        str(scenario["timerange"]),
+        signal_timerange,
     )
     results = [
         execute_short_delay_strategy(
@@ -267,7 +328,10 @@ def run_scenario(
     ]
     payload = {
         "schema_version": SCENARIO_SCHEMA_VERSION,
-        "scenario": dict(scenario),
+        "scenario": {
+            **dict(scenario),
+            "signal_data_timerange": signal_timerange,
+        },
         "repository_commit": repository_commit,
         "provenance": {
             **provenance,
@@ -285,7 +349,8 @@ def run_scenario(
         encoding="utf-8",
     )
     for result in serialized["results"]:
-        strategy_dir = output_dir / "strategies" / result["strategy"]["strategy_id"]
+        strategy_id = result["strategy"]["strategy_id"]
+        strategy_dir = output_dir / "strategies" / strategy_id
         strategy_dir.mkdir(parents=True, exist_ok=True)
         (strategy_dir / "result.json").write_text(
             json.dumps(result, indent=2, sort_keys=True, allow_nan=False) + "\n",
@@ -318,8 +383,18 @@ def aggregate_campaign(
     actual_ids = {row["scenario"]["scenario_id"] for row in scenarios}
     missing = sorted(expected_ids - actual_ids)
     extra = sorted(actual_ids - expected_ids)
-    invalid = [row for row in scenarios if len(row.get("results", [])) != len(STRATEGIES)]
-    complete = not missing and not extra and not invalid and len(scenarios) == len(planned)
+    invalid = [
+        row
+        for row in scenarios
+        if len(row.get("results", [])) != len(STRATEGIES)
+    ]
+    complete = (
+        not missing
+        and not extra
+        and not invalid
+        and len(scenarios) == len(planned)
+    )
+    strategy_count = sum(len(row.get("results", [])) for row in scenarios)
     status = {
         "schema_version": STATUS_SCHEMA_VERSION,
         "research_section": section,
@@ -327,13 +402,15 @@ def aggregate_campaign(
         "expected_scenarios": len(planned),
         "actual_scenarios": len(scenarios),
         "expected_strategy_results": len(planned) * len(STRATEGIES),
-        "actual_strategy_results": sum(len(row.get("results", [])) for row in scenarios),
+        "actual_strategy_results": strategy_count,
         "missing_scenario_ids": missing,
         "unexpected_scenario_ids": extra,
         "invalid_scenario_count": len(invalid),
         "matrix_complete": complete,
         "ranking_allowed": complete,
-        "disclosure": "Historical execution is not a guarantee of future performance.",
+        "disclosure": (
+            "Historical execution is not a guarantee of future performance."
+        ),
     }
     output_dir.mkdir(parents=True, exist_ok=True)
     (output_dir / "coverage-report.json").write_text(
@@ -344,9 +421,14 @@ def aggregate_campaign(
         raise ValueError("incomplete short-delay campaign matrix; aggregation blocked")
     rows: list[dict[str, Any]] = []
     trajectory_rows: list[dict[str, Any]] = []
-    for scenario in sorted(scenarios, key=lambda row: row["scenario"]["scenario_id"]):
+    ordered = sorted(
+        scenarios,
+        key=lambda row: row["scenario"]["scenario_id"],
+    )
+    for scenario in ordered:
         metadata = scenario["scenario"]
         for result in scenario["results"]:
+            diagnostics = result["delay_diagnostics"]
             rows.append(
                 {
                     "scenario_id": metadata["scenario_id"],
@@ -358,12 +440,12 @@ def aggregate_campaign(
                     "final_value": result["final_value_exact"],
                     "btc_quantity": result["quantity_exact"],
                     "cash_balance": result["cash_balance_exact"],
-                    "delayed_contributions": result["delay_diagnostics"][
+                    "delayed_contributions": diagnostics[
                         "delayed_contribution_count"
                     ],
-                    "average_delay_days": result["delay_diagnostics"]["average_delay_days"],
-                    "maximum_delay_days": result["delay_diagnostics"]["maximum_delay_days"],
-                    "immediate_investment_rate": result["delay_diagnostics"][
+                    "average_delay_days": diagnostics["average_delay_days"],
+                    "maximum_delay_days": diagnostics["maximum_delay_days"],
+                    "immediate_investment_rate": diagnostics[
                         "immediate_investment_rate"
                     ],
                 }
@@ -379,19 +461,30 @@ def aggregate_campaign(
                             "marked_to_market_portfolio_value": purchase[
                                 "marked_to_market_portfolio_value"
                             ],
-                            "cumulative_quantity": purchase["cumulative_quantity"],
+                            "cumulative_quantity": purchase[
+                                "cumulative_quantity"
+                            ],
                             "residual_cash": purchase["residual_cash"],
                         }
                     )
-    with (output_dir / "comparison.csv").open("w", newline="", encoding="utf-8") as handle:
+    with (output_dir / "comparison.csv").open(
+        "w",
+        newline="",
+        encoding="utf-8",
+    ) as handle:
         writer = csv.DictWriter(handle, fieldnames=list(rows[0]))
         writer.writeheader()
         writer.writerows(rows)
     if trajectory_rows:
         with (output_dir / "long-horizon-trajectory.csv").open(
-            "w", newline="", encoding="utf-8"
+            "w",
+            newline="",
+            encoding="utf-8",
         ) as handle:
-            writer = csv.DictWriter(handle, fieldnames=list(trajectory_rows[0]))
+            writer = csv.DictWriter(
+                handle,
+                fieldnames=list(trajectory_rows[0]),
+            )
             writer.writeheader()
             writer.writerows(trajectory_rows)
     summary = [
@@ -401,9 +494,15 @@ def aggregate_campaign(
         f"Complete scenarios: **{len(scenarios)}/{len(planned)}**",
         f"Strategy results: **{len(rows)}**",
         "",
-        "The matrix is complete. Historical execution is not a guarantee of future performance.",
+        (
+            "The matrix is complete. Historical execution is not a guarantee "
+            "of future performance."
+        ),
     ]
-    (output_dir / "job-summary.md").write_text("\n".join(summary) + "\n", encoding="utf-8")
+    (output_dir / "job-summary.md").write_text(
+        "\n".join(summary) + "\n",
+        encoding="utf-8",
+    )
     return status
 
 
@@ -418,7 +517,11 @@ def main(argv: Sequence[str] | None = None) -> None:
     plan.add_argument("--output", type=Path, required=True)
     run = subparsers.add_parser("run-scenario")
     run.add_argument("--scenario", type=Path, required=True)
-    run.add_argument("--data-dir", type=Path, default=Path("user_data/data/kraken"))
+    run.add_argument(
+        "--data-dir",
+        type=Path,
+        default=Path("user_data/data/kraken"),
+    )
     run.add_argument("--repository-commit", required=True)
     run.add_argument("--output-dir", type=Path, required=True)
     aggregate = subparsers.add_parser("aggregate")
@@ -434,7 +537,8 @@ def main(argv: Sequence[str] | None = None) -> None:
             "campaign": campaign,
             "provenance": provenance,
             "scenario_counts": {
-                section: len(plan_campaign(campaign, section)) for section in SECTIONS
+                section: len(plan_campaign(campaign, section))
+                for section in SECTIONS
             },
         }
         args.output.parent.mkdir(parents=True, exist_ok=True)
@@ -445,7 +549,10 @@ def main(argv: Sequence[str] | None = None) -> None:
     elif args.command == "plan":
         rows = plan_campaign(campaign, args.section)
         args.output.parent.mkdir(parents=True, exist_ok=True)
-        args.output.write_text(json.dumps(rows, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        args.output.write_text(
+            json.dumps(rows, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
     elif args.command == "run-scenario":
         run_scenario(
             campaign=campaign,
