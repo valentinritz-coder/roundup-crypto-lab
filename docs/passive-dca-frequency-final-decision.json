@@ -1,0 +1,184 @@
+{
+  "data_quality_provenance": {
+    "diagnostic_run_id": 30450539478,
+    "diagnostic_run_url": "https://github.com/valentinritz-coder/roundup-crypto-lab/actions/runs/30450539478",
+    "excluded_windows": [
+      {
+        "timerange": "20180101-20200101",
+        "window_set_id": "rolling-24m-6m-step"
+      },
+      {
+        "timerange": "20180101-20200101",
+        "window_set_id": "non-overlapping-24m"
+      },
+      {
+        "timerange": "20180101-20220101",
+        "window_set_id": "rolling-48m-12m-step"
+      }
+    ],
+    "gap_duration_hours": 36,
+    "gap_end_utc": "2018-01-13T08:00:00Z",
+    "gap_start_utc": "2018-01-11T20:00:00Z",
+    "handling": "Exclude only the affected windows; do not interpolate, forward-fill or substitute another venue."
+  },
+  "decision_date": "2026-07-29",
+  "issue": {
+    "number": 117,
+    "state": "closed",
+    "state_reason": "completed",
+    "url": "https://github.com/valentinritz-coder/roundup-crypto-lab/issues/117"
+  },
+  "limitations": [
+    "The study covers BTC/EUR only.",
+    "Results depend on the committed historical windows and cost-profile assumptions.",
+    "The hypothetical fixed cost is a sensitivity analysis and is not a venue tariff claim.",
+    "The study tests passive accumulation only: no selling, indicators or market timing.",
+    "Historical confirmation does not guarantee future investment performance."
+  ],
+  "official_decision": {
+    "benchmark_strategy_id": "monthly-dca",
+    "further_same_holdout_runs": "Do not use the confirmation holdout for further frequency selection or reinterpretation.",
+    "label": "MonthlyDCA confirmed",
+    "label_fr": "MonthlyDCA confirmé",
+    "operational_rule": "Use MonthlyDCA as the passive benchmark and deploy each monthly contribution when it becomes available.",
+    "preferred_frequency": "monthly",
+    "primary_cost_profile_id": "proportional-plus-spread-v1",
+    "rationale": [
+      "Monthly ranked first in every confirmation cost profile, including frictionless control and hypothetical fixed-cost sensitivity.",
+      "No lower-frequency strategy consistently beat MonthlyDCA in the exploratory phase.",
+      "Lower frequencies saved little execution cost relative to the performance lost while contributions waited in cash.",
+      "Weekly execution increased order count and did not improve the confirmation outcome."
+    ],
+    "status": "confirmed"
+  },
+  "protocol": {
+    "calendar_phase_rule": "All valid phases are aggregated; no best phase is selected.",
+    "cost_profiles": [
+      "frictionless-control-v1",
+      "proportional-fee-v1",
+      "proportional-plus-spread-v1",
+      "hypothetical-fixed-cost-v1"
+    ],
+    "data_quality_amendment_path": "config/passive-dca-frequency-research-data-quality-amendment.json",
+    "frequencies": [
+      "weekly",
+      "monthly",
+      "every-2-months",
+      "quarterly"
+    ],
+    "pair": "BTC/EUR",
+    "research_path": "config/passive-dca-frequency-research.json",
+    "timeframe": "4h",
+    "workflow": "Passive DCA frequency research amended"
+  },
+  "repository_commit": "4b9ba95766ada6133f65a8157046b2f0ce8c3321",
+  "research_id": "passive-dca-frequency-research-2026-07-29",
+  "runs": {
+    "confirmation": {
+      "artifact_expiration_date": "2026-08-28",
+      "artifact_name": "passive-dca-frequency-research-amended-confirmation-30452782223",
+      "artifact_sha256": "8d10de5d286f0f07e0449798133e2777cbd0f33adf1d96986ff64a736b0dc9ac",
+      "conclusion": "success",
+      "consensus_frequency_by_profile": {
+        "frictionless-control-v1": "monthly",
+        "hypothetical-fixed-cost-v1": "monthly",
+        "proportional-fee-v1": "monthly",
+        "proportional-plus-spread-v1": "monthly"
+      },
+      "interpretation_status": "confirmation_holdout_do_not_reinterpret_exploratory",
+      "phase": "confirmation",
+      "realistic_profile_results": [
+        {
+          "average_capital_deployment_ratio": "1.0",
+          "average_pending_cash_age_days": "0",
+          "classification": "primary control",
+          "difference_vs_monthly_eur": "0",
+          "frequency": "monthly",
+          "median_net_terminal_value_eur": "1115.084356466330090739363813",
+          "order_count": 24,
+          "rank": 1,
+          "total_execution_cost_eur": "3.0984507746126937"
+        },
+        {
+          "average_capital_deployment_ratio": "0.9614255340690492",
+          "average_pending_cash_age_days": "15.24",
+          "classification": "rejected",
+          "difference_vs_monthly_eur": "-19.659870108767905",
+          "frequency": "every-2-months",
+          "median_net_terminal_value_eur": "1095.424486357562",
+          "order_count": 12,
+          "rank": 2,
+          "total_execution_cost_eur": "3.03648175912044"
+        },
+        {
+          "average_capital_deployment_ratio": "0.9632985724410246",
+          "average_pending_cash_age_days": "14.5",
+          "classification": "rejected",
+          "difference_vs_monthly_eur": "-21.608658045309912",
+          "frequency": "weekly",
+          "median_net_terminal_value_eur": "1093.47569842102",
+          "order_count": 105,
+          "rank": 3,
+          "total_execution_cost_eur": "3.0984507746126937"
+        },
+        {
+          "average_capital_deployment_ratio": "0.9254834463906044",
+          "average_pending_cash_age_days": "29.44",
+          "classification": "rejected",
+          "difference_vs_monthly_eur": "-30.909002325882195",
+          "frequency": "quarterly",
+          "median_net_terminal_value_eur": "1084.1753541404478",
+          "order_count": 8,
+          "rank": 4,
+          "total_execution_cost_eur": "2.9745127436281855"
+        }
+      ],
+      "run_id": 30452782223,
+      "scenario_count": 4,
+      "strategy_result_count": 28,
+      "timerange": "20240101-20260101",
+      "url": "https://github.com/valentinritz-coder/roundup-crypto-lab/actions/runs/30452782223"
+    },
+    "exploratory": {
+      "artifact_expiration_date": "2026-08-28",
+      "artifact_name": "passive-dca-frequency-research-amended-exploratory-30451860585",
+      "artifact_sha256": "f7ee140090faac1cde3f771f8f7a353cca855215b2adf5adda0fbb1e5204c074",
+      "conclusion": "success",
+      "interpretation_status": "exploratory_ready_for_review",
+      "phase": "exploratory",
+      "profile_consensus": {
+        "frictionless-control-v1": "mixed",
+        "hypothetical-fixed-cost-v1": "mixed",
+        "proportional-fee-v1": "mixed",
+        "proportional-plus-spread-v1": "mixed"
+      },
+      "run_id": 30451860585,
+      "scenario_count": 48,
+      "strategy_result_count": 336,
+      "url": "https://github.com/valentinritz-coder/roundup-crypto-lab/actions/runs/30451860585",
+      "window_set_winners": {
+        "frictionless-control-v1": {
+          "non-overlapping-24m": "monthly",
+          "rolling-24m-6m-step": "weekly",
+          "rolling-48m-12m-step": "monthly"
+        },
+        "hypothetical-fixed-cost-v1": {
+          "non-overlapping-24m": "monthly",
+          "rolling-24m-6m-step": "quarterly",
+          "rolling-48m-12m-step": "monthly"
+        },
+        "proportional-fee-v1": {
+          "non-overlapping-24m": "monthly",
+          "rolling-24m-6m-step": "weekly",
+          "rolling-48m-12m-step": "monthly"
+        },
+        "proportional-plus-spread-v1": {
+          "non-overlapping-24m": "monthly",
+          "rolling-24m-6m-step": "weekly",
+          "rolling-48m-12m-step": "monthly"
+        }
+      }
+    }
+  },
+  "schema_version": "passive-dca-frequency-final-decision/v1"
+}
