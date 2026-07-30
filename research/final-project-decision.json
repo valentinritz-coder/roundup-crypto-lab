@@ -1,0 +1,72 @@
+{
+  "schema_version": "roundup-crypto-lab-final-decision/v1",
+  "project_status": "completed",
+  "research_closed_at": "2026-07-29",
+  "decision": "retain_monthly_dca",
+  "selected_strategy_id": "monthly_dca_control",
+  "operational_rule": {
+    "contribution_frequency": "monthly",
+    "deployment": "invest_100_percent_immediately",
+    "indicator": null,
+    "market_timing": false,
+    "persistent_cash_reserve": false,
+    "selling": false,
+    "leverage": false
+  },
+  "pilotage_research": {
+    "status": "ended",
+    "additional_variants_allowed": false,
+    "reason": "No frozen short-delay challenger demonstrated robust, economically meaningful superiority after costs and cash opportunity cost."
+  },
+  "primary_cost_profile_id": "proportional-plus-spread-v1",
+  "final_campaign": {
+    "workflow": "Short-delay DCA final analysis",
+    "run_id": 30473443991,
+    "repository_commit": "991d92a3a04f752620a9d621ec6c12605814859f",
+    "expected_scenarios": 52,
+    "actual_scenarios": 52,
+    "expected_strategy_results": 208,
+    "actual_strategy_results": 208,
+    "matrix_complete": true
+  },
+  "candidate_results": [
+    {
+      "rank": 1,
+      "strategy_id": "confirmed_short_decline_delay",
+      "adoption_qualified": false,
+      "median_terminal_value_difference_ratio": "-0.004473566105011238534466291841",
+      "worst_terminal_value_difference_ratio": "-0.005227284847528077383110710737",
+      "window_win_rate": "0",
+      "long_horizon_terminal_value_difference_ratio": "-0.004094130103511707249473013484",
+      "long_horizon_btc_quantity_difference": "-0.0010864910296633715987620427"
+    },
+    {
+      "rank": 2,
+      "strategy_id": "below_7d_sma_delay",
+      "adoption_qualified": false,
+      "median_terminal_value_difference_ratio": "-0.009462751813448906780070370175",
+      "worst_terminal_value_difference_ratio": "-0.01663885680480054297376003161",
+      "window_win_rate": "0",
+      "long_horizon_terminal_value_difference_ratio": "-0.008268186580025559017881161400",
+      "long_horizon_btc_quantity_difference": "-0.0021941927402540232078607477"
+    },
+    {
+      "rank": 3,
+      "strategy_id": "negative_7d_return_delay",
+      "adoption_qualified": false,
+      "median_terminal_value_difference_ratio": "-0.00981070837035865455023233424",
+      "worst_terminal_value_difference_ratio": "-0.01625100664738644502056613207",
+      "window_win_rate": "0.08333333333333333333333333333",
+      "long_horizon_terminal_value_difference_ratio": "-0.007103166068103919251999044467",
+      "long_horizon_btc_quantity_difference": "-0.0018850222196369635991271762"
+    }
+  ],
+  "final_statement": "Retain MonthlyDCA, invest each monthly contribution immediately, and end further pilotage research.",
+  "human_readable_conclusion": "docs/final-conclusion.md",
+  "disclosures": [
+    "Overlapping rolling windows are dependent observations and are not treated as independent trials.",
+    "The continuous path is a historical complement, not an independent confirmation holdout.",
+    "Risk reduction caused by holding more cash cannot qualify a rule without positive return or BTC accumulation evidence.",
+    "Historical execution is not a guarantee of future performance."
+  ]
+}
