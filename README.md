@@ -1,3 +1,16 @@
+# Roundup Crypto Lab
+
+> [!IMPORTANT]
+> **Project status: research completed.**
+>
+> The final operational decision is to retain **MonthlyDCA**: invest each monthly contribution
+> immediately, without an indicator, sale or market-timing delay. No tested active or bounded
+> short-delay strategy demonstrated robust superiority after execution costs and the opportunity
+> cost of waiting cash. Further pilotage research is closed.
+>
+> Read the [final human-readable conclusion](docs/final-conclusion.md) and the
+> [machine-readable project decision](research/final-project-decision.json).
+
 ## Research Philosophy
 
 The purpose of this repository is not to discover strategies that merely look profitable.
@@ -14,9 +27,28 @@ A strategy that survives every attempt to break it has not been proven correct. 
 >
 > — Richard Feynman
 
-# Roundup Crypto Lab
+## Final conclusion
 
-A deliberately small crypto swing-trading laboratory funded by:
+The completed research retained `monthly_dca_control` as the official benchmark and operational
+rule. A contribution becomes available each month and is invested 100% immediately. There is no
+indicator, tactical reserve, selling, leverage, borrowing or discretionary override.
+
+The final short-delay campaign executed the complete committed matrix of 52 scenarios and 208
+strategy results. Under the primary realistic `proportional-plus-spread-v1` cost profile, every
+frozen challenger produced a negative median terminal-value difference, negative long-horizon
+value and BTC evidence, and insufficient window support. Lower exposure or drawdown from holding
+cash was not accepted as superior return.
+
+The negative result is final and valid. Newly invented delay limits, indicators or deceleration
+variants are not appended after observing the campaign because that would violate the stopping
+rule and reopen post-hoc optimization.
+
+See [`docs/final-conclusion.md`](docs/final-conclusion.md) for the complete interpretation and
+reproducibility references.
+
+## Original project scope
+
+This repository began as a deliberately small crypto swing-trading laboratory funded by:
 
 - a fixed monthly contribution of **EUR 40**;
 - the cents required to round eligible card payments up to the next euro.
@@ -80,7 +112,8 @@ user_data/config.json          Freqtrade dry-run configuration
 user_data/config-lookahead.json Look-ahead-only market-pricing override
 user_data/strategies/          Freqtrade strategies
 data/examples/                 Harmless example bank exports
-docs/                          Architecture, risk policy, roadmap
+docs/                          Architecture, risk policy, roadmap and final conclusion
+research/                      Frozen protocols and machine-readable final decision
 codex/                         Bounded implementation tasks for Codex
 .github/workflows/             Unit and Freqtrade validation pipelines
 ```
